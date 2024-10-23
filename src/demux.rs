@@ -1,40 +1,30 @@
+use anyhow::Error;
+use ffmpeg_sys_the_third::*;
 use std::ffi::CStr;
 use std::time::Instant;
 use std::{ptr, slice};
 
-use anyhow::Error;
-use ffmpeg_sys_the_third::*;
-
 use crate::get_ffmpeg_error_msg;
 use crate::return_ffmpeg_error;
+use slimbox::{slimbox_unsize, SlimBox, SlimMut};
 use std::fmt::{Display, Formatter};
 use std::io::{Read, Write};
 use std::mem::transmute;
 
+#[no_mangle]
 unsafe extern "C" fn read_data(
     opaque: *mut libc::c_void,
     dst_buffer: *mut libc::c_uchar,
     size: libc::c_int,
 ) -> libc::c_int {
-    let buffer: *mut Box<dyn Read> = opaque.cast();
-    /// we loop until there is enough data to fill [size]
-    let mut dst_slice: &mut [u8] = slice::from_raw_parts_mut(dst_buffer, size as usize);
-    let mut w_total = 0usize;
-    loop {
-        return match (*buffer).read(dst_slice) {
-            Ok(v) => {
-                w_total += v;
-                if w_total != size as usize {
-                    dst_slice = &mut dst_slice[v..];
-                    continue;
-                }
-                size
-            }
-            Err(e) => {
-                eprintln!("read_data {}", e);
-                AVERROR_EOF
-            }
-        };
+    let mut buffer: SlimMut<'_, dyn Read + 'static> = SlimMut::from_raw(opaque);
+    let dst_slice: &mut [u8] = slice::from_raw_parts_mut(dst_buffer, size as usize);
+    match buffer.read_exact(dst_slice) {
+        Ok(_) => size,
+        Err(e) => {
+            eprintln!("read_data {}", e);
+            AVERROR_EOF
+        }
     }
 }
 
@@ -160,18 +150,14 @@ impl Display for StreamInfoChannel {
     }
 }
 
-pub struct Demuxer<'a> {
+pub struct Demuxer {
     ctx: *mut AVFormatContext,
     input: String,
     started: Instant,
-    buffer: Option<Box<dyn Read + 'a>>,
+    buffer: Option<SlimBox<dyn Read + 'static>>,
 }
 
-unsafe impl Send for Demuxer<'_> {}
-
-unsafe impl Sync for Demuxer<'_> {}
-
-impl Demuxer<'_> {
+impl Demuxer {
     pub fn new(input: &str) -> Self {
         unsafe {
             let ps = avformat_alloc_context();
@@ -184,33 +170,33 @@ impl Demuxer<'_> {
         }
     }
 
-    pub fn new_custom_io<T: Read + 'static>(reader: T) -> Self {
+    pub fn new_custom_io<R: Read + 'static>(reader: R) -> Self {
         unsafe {
             let ps = avformat_alloc_context();
             (*ps).flags |= AVFMT_FLAG_CUSTOM_IO;
 
-            let buffer = Box::new(reader);
             Self {
                 ctx: ps,
                 input: String::new(),
                 started: Instant::now(),
-                buffer: Some(buffer),
+                buffer: Some(slimbox_unsize!(reader)),
             }
         }
     }
 
     unsafe fn open_input(&mut self) -> libc::c_int {
-        if let Some(mut buffer) = self.buffer.take() {
+        if let Some(buffer) = self.buffer.take() {
             const BUFFER_SIZE: usize = 4096;
             let pb = avio_alloc_context(
                 av_mallocz(BUFFER_SIZE) as *mut libc::c_uchar,
                 BUFFER_SIZE as libc::c_int,
                 0,
-                ptr::addr_of_mut!(buffer) as _,
+                buffer.into_raw(),
                 Some(read_data),
                 None,
                 None,
             );
+
             (*self.ctx).pb = pb;
             avformat_open_input(
                 &mut self.ctx,
@@ -235,7 +221,7 @@ impl Demuxer<'_> {
         if avformat_find_stream_info(self.ctx, ptr::null_mut()) < 0 {
             return Err(Error::msg("Could not find stream info"));
         }
-        av_dump_format(self.ctx, 0, ptr::null_mut(), 0);
+        //av_dump_format(self.ctx, 0, ptr::null_mut(), 0);
 
         let mut channel_infos = vec![];
 
@@ -308,9 +294,13 @@ impl Demuxer<'_> {
     }
 }
 
-impl Drop for Demuxer<'_> {
+impl Drop for Demuxer {
     fn drop(&mut self) {
         unsafe {
+            if !(*(*self.ctx).pb).opaque.is_null() {
+                let ptr: SlimBox<dyn Read> = SlimBox::from_raw((*(*self.ctx).pb).opaque);
+                drop(ptr)
+            }
             avformat_free_context(self.ctx);
             self.ctx = ptr::null_mut();
         }

@@ -23,3 +23,8 @@ fn get_ffmpeg_error_msg(ret: libc::c_int) -> String {
         String::from(CStr::from_ptr(buf.as_ptr()).to_str().unwrap())
     }
 }
+
+pub use decode::*;
+pub use demux::*;
+pub use resample::*;
+pub use scale::*;

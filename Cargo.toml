@@ -14,3 +14,4 @@ crate-type = ["lib", "cdylib"]
 anyhow = "1.0.91"
 ffmpeg-sys-the-third = { git = "https://github.com/shssoichiro/ffmpeg-the-third.git", branch = "master", package = "ffmpeg-sys-the-third" }
 libc = { version = "0.2.160" }
+slimbox = "0.1.0"
