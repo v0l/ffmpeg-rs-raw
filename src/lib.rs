@@ -6,7 +6,7 @@ mod demux;
 mod resample;
 mod scale;
 
-#[macro_export(crate)]
+#[macro_export]
 macro_rules! return_ffmpeg_error {
     ($x:expr) => {
         if $x < 0 {

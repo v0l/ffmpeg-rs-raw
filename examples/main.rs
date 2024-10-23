@@ -30,8 +30,23 @@ fn main() {
         std::process::exit(1);
     };
 
+    let cd = read_as_custom_io(path.clone());
+    scan_input(cd);
+
+    let fd = read_as_file(path.clone());
+    scan_input(fd);
+}
+
+fn read_as_custom_io(path: PathBuf) -> Demuxer {
     let file = File::open(path).unwrap();
-    let mut demuxer = Demuxer::new_custom_io(DropTest { inner: file });
+    Demuxer::new_custom_io(DropTest { inner: file })
+}
+
+fn read_as_file(path_buf: PathBuf) -> Demuxer {
+    Demuxer::new(path_buf.to_str().unwrap())
+}
+
+fn scan_input(mut demuxer: Demuxer) {
     unsafe {
         let info = demuxer.probe_input().expect("demuxer failed");
         println!("{}", info);
@@ -43,7 +58,7 @@ fn main() {
                 break; // EOF
             }
             if let Ok(frames) = decoder.decode_pkt(pkt, stream) {
-                for (mut frame, stream) in frames {
+                for (mut frame, _stream) in frames {
                     // do nothing but decode entire stream
                     av_frame_free(&mut frame);
                 }

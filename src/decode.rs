@@ -29,7 +29,6 @@ impl Drop for CodecContext {
 
 pub struct Decoder {
     codecs: HashMap<i32, CodecContext>,
-    pts: i64,
 }
 
 unsafe impl Send for Decoder {}
@@ -40,7 +39,6 @@ impl Decoder {
     pub fn new() -> Self {
         Self {
             codecs: HashMap::new(),
-            pts: 0,
         }
     }
 

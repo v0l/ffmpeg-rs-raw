@@ -1,14 +1,13 @@
 use anyhow::Error;
 use ffmpeg_sys_the_third::*;
 use std::ffi::CStr;
-use std::time::Instant;
 use std::{ptr, slice};
 
 use crate::get_ffmpeg_error_msg;
 use crate::return_ffmpeg_error;
 use slimbox::{slimbox_unsize, SlimBox, SlimMut};
 use std::fmt::{Display, Formatter};
-use std::io::{Read, Write};
+use std::io::Read;
 use std::mem::transmute;
 
 #[no_mangle]
@@ -150,11 +149,14 @@ impl Display for StreamInfoChannel {
     }
 }
 
+pub enum DemuxerInput {
+    Url(String),
+    Reader(Option<SlimBox<dyn Read + 'static>>),
+}
+
 pub struct Demuxer {
     ctx: *mut AVFormatContext,
-    input: String,
-    started: Instant,
-    buffer: Option<SlimBox<dyn Read + 'static>>,
+    input: DemuxerInput,
 }
 
 impl Demuxer {
@@ -163,9 +165,7 @@ impl Demuxer {
             let ps = avformat_alloc_context();
             Self {
                 ctx: ps,
-                input: input.to_string(),
-                started: Instant::now(),
-                buffer: None,
+                input: DemuxerInput::Url(input.to_string()),
             }
         }
     }
@@ -177,40 +177,40 @@ impl Demuxer {
 
             Self {
                 ctx: ps,
-                input: String::new(),
-                started: Instant::now(),
-                buffer: Some(slimbox_unsize!(reader)),
+                input: DemuxerInput::Reader(Some(slimbox_unsize!(reader))),
             }
         }
     }
 
     unsafe fn open_input(&mut self) -> libc::c_int {
-        if let Some(buffer) = self.buffer.take() {
-            const BUFFER_SIZE: usize = 4096;
-            let pb = avio_alloc_context(
-                av_mallocz(BUFFER_SIZE) as *mut libc::c_uchar,
-                BUFFER_SIZE as libc::c_int,
-                0,
-                buffer.into_raw(),
-                Some(read_data),
-                None,
-                None,
-            );
+        match &mut self.input {
+            DemuxerInput::Url(input) => avformat_open_input(
+                &mut self.ctx,
+                format!("{}\0", input).as_ptr() as *const libc::c_char,
+                ptr::null_mut(),
+                ptr::null_mut(),
+            ),
+            DemuxerInput::Reader(input) => {
+                let input = input.take().expect("input stream already taken");
+                const BUFFER_SIZE: usize = 4096;
+                let pb = avio_alloc_context(
+                    av_mallocz(BUFFER_SIZE) as *mut libc::c_uchar,
+                    BUFFER_SIZE as libc::c_int,
+                    0,
+                    input.into_raw(),
+                    Some(read_data),
+                    None,
+                    None,
+                );
 
-            (*self.ctx).pb = pb;
-            avformat_open_input(
-                &mut self.ctx,
-                ptr::null_mut(),
-                ptr::null_mut(),
-                ptr::null_mut(),
-            )
-        } else {
-            avformat_open_input(
-                &mut self.ctx,
-                format!("{}\0", self.input).as_ptr() as *const libc::c_char,
-                ptr::null_mut(),
-                ptr::null_mut(),
-            )
+                (*self.ctx).pb = pb;
+                avformat_open_input(
+                    &mut self.ctx,
+                    ptr::null_mut(),
+                    ptr::null_mut(),
+                    ptr::null_mut(),
+                )
+            }
         }
     }
 
@@ -297,9 +297,8 @@ impl Demuxer {
 impl Drop for Demuxer {
     fn drop(&mut self) {
         unsafe {
-            if !(*(*self.ctx).pb).opaque.is_null() {
-                let ptr: SlimBox<dyn Read> = SlimBox::from_raw((*(*self.ctx).pb).opaque);
-                drop(ptr)
+            if let DemuxerInput::Reader(_) = self.input {
+                drop(SlimBox::<dyn Read>::from_raw((*(*self.ctx).pb).opaque));
             }
             avformat_free_context(self.ctx);
             self.ctx = ptr::null_mut();
