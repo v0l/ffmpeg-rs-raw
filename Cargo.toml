@@ -1,0 +1,16 @@
+[package]
+name = "ffmpeg-rs-raw"
+version = "0.1.0"
+edition = "2021"
+repository = "https://git.v0l.io/Kieran/ffmpeg-rs-raw.git"
+authors = [
+    "Kieran"
+]
+
+[lib]
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+anyhow = "1.0.91"
+ffmpeg-sys-the-third = { git = "https://github.com/shssoichiro/ffmpeg-the-third.git", branch = "master", package = "ffmpeg-sys-the-third" }
+libc = { version = "0.2.160" }
