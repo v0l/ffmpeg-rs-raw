@@ -26,5 +26,6 @@ fn get_ffmpeg_error_msg(ret: libc::c_int) -> String {
 
 pub use decode::*;
 pub use demux::*;
+pub use ffmpeg_sys_the_third;
 pub use resample::*;
 pub use scale::*;
