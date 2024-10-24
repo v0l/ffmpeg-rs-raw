@@ -1,3 +1,4 @@
+use crate::{options_to_dict, StreamInfoChannel};
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ptr;
@@ -12,12 +13,23 @@ use ffmpeg_sys_the_third::{
 };
 use libc::memcpy;
 
-struct CodecContext {
+pub struct DecoderCodecContext {
     pub context: *mut AVCodecContext,
     pub codec: *const AVCodec,
 }
 
-impl Drop for CodecContext {
+impl DecoderCodecContext {
+    /// Set [AVCodecContext] options
+    pub fn set_opt(&mut self, options: HashMap<String, String>) -> Result<(), Error> {
+        crate::set_opts(self.context as *mut libc::c_void, options)
+    }
+
+    pub fn list_opts(&self) -> Result<Vec<String>, Error> {
+        crate::list_opts(self.context as *mut libc::c_void)
+    }
+}
+
+impl Drop for DecoderCodecContext {
     fn drop(&mut self) {
         unsafe {
             avcodec_free_context(&mut self.context);
@@ -27,18 +39,73 @@ impl Drop for CodecContext {
     }
 }
 
+unsafe impl Send for DecoderCodecContext {}
+unsafe impl Sync for DecoderCodecContext {}
+
 pub struct Decoder {
-    codecs: HashMap<i32, CodecContext>,
+    codecs: HashMap<i32, DecoderCodecContext>,
 }
-
-unsafe impl Send for Decoder {}
-
-unsafe impl Sync for Decoder {}
 
 impl Decoder {
     pub fn new() -> Self {
         Self {
             codecs: HashMap::new(),
+        }
+    }
+
+    /// Set up a decoder for a given channel
+    pub fn setup_decoder(
+        &mut self,
+        channel: &StreamInfoChannel,
+        options: Option<HashMap<String, String>>,
+    ) -> Result<&mut DecoderCodecContext, Error> {
+        unsafe { self.setup_decoder_for_stream(channel.stream, options) }
+    }
+
+    /// Set up a decoder from an [AVStream]
+    pub unsafe fn setup_decoder_for_stream(
+        &mut self,
+        stream: *mut AVStream,
+        options: Option<HashMap<String, String>>,
+    ) -> Result<&mut DecoderCodecContext, Error> {
+        if stream.is_null() {
+            anyhow::bail!("stream is null");
+        }
+
+        let codec_par = (*stream).codecpar;
+        assert_ne!(
+            codec_par,
+            ptr::null_mut(),
+            "Codec parameters are missing from stream"
+        );
+
+        if let std::collections::hash_map::Entry::Vacant(e) = self.codecs.entry((*stream).index) {
+            let codec = avcodec_find_decoder((*codec_par).codec_id);
+            if codec.is_null() {
+                anyhow::bail!(
+                    "Failed to find codec: {}",
+                    CStr::from_ptr(avcodec_get_name((*codec_par).codec_id)).to_str()?
+                )
+            }
+            let context = avcodec_alloc_context3(codec);
+            if context.is_null() {
+                anyhow::bail!("Failed to alloc context")
+            }
+            if avcodec_parameters_to_context(context, (*stream).codecpar) != 0 {
+                anyhow::bail!("Failed to copy codec parameters to context")
+            }
+            let mut dict = if let Some(options) = options {
+                options_to_dict(options)?
+            } else {
+                ptr::null_mut()
+            };
+
+            if avcodec_open2(context, codec, &mut dict) < 0 {
+                anyhow::bail!("Failed to open codec")
+            }
+            Ok(e.insert(DecoderCodecContext { context, codec }))
+        } else {
+            anyhow::bail!("Decoder already setup");
         }
     }
 
@@ -53,34 +120,6 @@ impl Decoder {
             (*stream).index,
             "Passed stream reference does not match stream_index of packet"
         );
-
-        let codec_par = (*stream).codecpar;
-        assert_ne!(
-            codec_par,
-            ptr::null_mut(),
-            "Codec parameters are missing from stream"
-        );
-
-        if let std::collections::hash_map::Entry::Vacant(e) = self.codecs.entry(stream_index) {
-            let codec = avcodec_find_decoder((*codec_par).codec_id);
-            if codec.is_null() {
-                return Err(Error::msg(format!(
-                    "Failed to find codec: {}",
-                    CStr::from_ptr(avcodec_get_name((*codec_par).codec_id)).to_str()?
-                )));
-            }
-            let context = avcodec_alloc_context3(ptr::null());
-            if context.is_null() {
-                return Err(Error::msg("Failed to alloc context"));
-            }
-            if avcodec_parameters_to_context(context, (*stream).codecpar) != 0 {
-                return Err(Error::msg("Failed to copy codec parameters to context"));
-            }
-            if avcodec_open2(context, codec, ptr::null_mut()) < 0 {
-                return Err(Error::msg("Failed to open codec"));
-            }
-            e.insert(CodecContext { context, codec });
-        }
 
         if let Some(ctx) = self.codecs.get_mut(&stream_index) {
             // subtitles don't need decoding, create a frame from the pkt data

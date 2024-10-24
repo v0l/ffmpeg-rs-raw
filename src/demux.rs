@@ -1,14 +1,11 @@
+use crate::return_ffmpeg_error;
+use crate::{get_ffmpeg_error_msg, DemuxerInfo, StreamChannelType, StreamInfoChannel};
 use anyhow::Error;
 use ffmpeg_sys_the_third::*;
-use std::ffi::CStr;
-use std::{ptr, slice};
-
-use crate::get_ffmpeg_error_msg;
-use crate::return_ffmpeg_error;
 use slimbox::{slimbox_unsize, SlimBox, SlimMut};
-use std::fmt::{Display, Formatter};
+use std::collections::HashMap;
 use std::io::Read;
-use std::mem::transmute;
+use std::{ptr, slice};
 
 #[no_mangle]
 unsafe extern "C" fn read_data(
@@ -27,131 +24,9 @@ unsafe extern "C" fn read_data(
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct DemuxerInfo {
-    pub bitrate: usize,
-    pub duration: f32,
-    pub channels: Vec<StreamInfoChannel>,
-}
-
-unsafe impl Send for DemuxerInfo {}
-unsafe impl Sync for DemuxerInfo {}
-
-impl DemuxerInfo {
-    pub fn best_stream(&self, t: StreamChannelType) -> Option<&StreamInfoChannel> {
-        self.channels
-            .iter()
-            .filter(|a| a.channel_type == t)
-            .reduce(|acc, channel| {
-                if channel.best_metric() > acc.best_metric() {
-                    channel
-                } else {
-                    acc
-                }
-            })
-    }
-
-    pub fn best_video(&self) -> Option<&StreamInfoChannel> {
-        self.best_stream(StreamChannelType::Video)
-    }
-
-    pub fn best_audio(&self) -> Option<&StreamInfoChannel> {
-        self.best_stream(StreamChannelType::Audio)
-    }
-
-    pub fn best_subtitle(&self) -> Option<&StreamInfoChannel> {
-        self.best_stream(StreamChannelType::Subtitle)
-    }
-
-    pub unsafe fn is_best_stream(&self, stream: *mut AVStream) -> bool {
-        match (*(*stream).codecpar).codec_type {
-            AVMediaType::AVMEDIA_TYPE_VIDEO => {
-                (*stream).index == self.best_video().map_or(usize::MAX, |r| r.index) as libc::c_int
-            }
-            AVMediaType::AVMEDIA_TYPE_AUDIO => {
-                (*stream).index == self.best_audio().map_or(usize::MAX, |r| r.index) as libc::c_int
-            }
-            AVMediaType::AVMEDIA_TYPE_SUBTITLE => {
-                (*stream).index
-                    == self.best_subtitle().map_or(usize::MAX, |r| r.index) as libc::c_int
-            }
-            _ => false,
-        }
-    }
-}
-
-impl Display for DemuxerInfo {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Demuxer Info:")?;
-        for c in &self.channels {
-            write!(f, "\n{}", c)?;
-        }
-        Ok(())
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum StreamChannelType {
-    Video,
-    Audio,
-    Subtitle,
-}
-
-impl Display for StreamChannelType {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                StreamChannelType::Video => "video",
-                StreamChannelType::Audio => "audio",
-                StreamChannelType::Subtitle => "subtitle",
-            }
-        )
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct StreamInfoChannel {
-    pub index: usize,
-    pub channel_type: StreamChannelType,
-    pub codec: usize,
-    pub width: usize,
-    pub height: usize,
-    pub fps: f32,
-    pub sample_rate: usize,
-    pub format: usize,
-}
-
-impl StreamInfoChannel {
-    pub fn best_metric(&self) -> f32 {
-        match self.channel_type {
-            StreamChannelType::Video => self.width as f32 * self.height as f32 * self.fps,
-            StreamChannelType::Audio => self.sample_rate as f32,
-            StreamChannelType::Subtitle => 999. - self.index as f32,
-        }
-    }
-}
-
-impl Display for StreamInfoChannel {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let codec_name = unsafe { CStr::from_ptr(avcodec_get_name(transmute(self.codec as i32))) };
-        write!(
-            f,
-            "{} #{}: codec={},size={}x{},fps={}",
-            self.channel_type,
-            self.index,
-            codec_name.to_str().unwrap(),
-            self.width,
-            self.height,
-            self.fps
-        )
-    }
-}
-
 pub enum DemuxerInput {
     Url(String),
-    Reader(Option<SlimBox<dyn Read + 'static>>),
+    Reader(Option<SlimBox<dyn Read + 'static>>, Option<String>),
 }
 
 pub struct Demuxer {
@@ -160,26 +35,33 @@ pub struct Demuxer {
 }
 
 impl Demuxer {
+    /// Create a new [Demuxer] from a file path or url
     pub fn new(input: &str) -> Self {
         unsafe {
-            let ps = avformat_alloc_context();
+            let ctx = avformat_alloc_context();
             Self {
-                ctx: ps,
+                ctx,
                 input: DemuxerInput::Url(input.to_string()),
             }
         }
     }
 
-    pub fn new_custom_io<R: Read + 'static>(reader: R) -> Self {
+    /// Create a new [Demuxer] from an object that implements [Read]
+    pub fn new_custom_io<R: Read + 'static>(reader: R, url: Option<String>) -> Self {
         unsafe {
-            let ps = avformat_alloc_context();
-            (*ps).flags |= AVFMT_FLAG_CUSTOM_IO;
+            let ctx = avformat_alloc_context();
+            (*ctx).flags |= AVFMT_FLAG_CUSTOM_IO;
 
             Self {
-                ctx: ps,
-                input: DemuxerInput::Reader(Some(slimbox_unsize!(reader))),
+                ctx,
+                input: DemuxerInput::Reader(Some(slimbox_unsize!(reader)), url),
             }
         }
+    }
+
+    /// Set [AVFormatContext] options
+    pub fn set_opt(&mut self, options: HashMap<String, String>) -> Result<(), Error> {
+        crate::set_opts(self.ctx as *mut libc::c_void, options)
     }
 
     unsafe fn open_input(&mut self) -> libc::c_int {
@@ -190,7 +72,7 @@ impl Demuxer {
                 ptr::null_mut(),
                 ptr::null_mut(),
             ),
-            DemuxerInput::Reader(input) => {
+            DemuxerInput::Reader(input, url) => {
                 let input = input.take().expect("input stream already taken");
                 const BUFFER_SIZE: usize = 4096;
                 let pb = avio_alloc_context(
@@ -206,7 +88,11 @@ impl Demuxer {
                 (*self.ctx).pb = pb;
                 avformat_open_input(
                     &mut self.ctx,
-                    ptr::null_mut(),
+                    if let Some(url) = url {
+                        format!("{}\0", url).as_ptr() as *const libc::c_char
+                    } else {
+                        ptr::null_mut()
+                    },
                     ptr::null_mut(),
                     ptr::null_mut(),
                 )
@@ -221,7 +107,6 @@ impl Demuxer {
         if avformat_find_stream_info(self.ctx, ptr::null_mut()) < 0 {
             return Err(Error::msg("Could not find stream info"));
         }
-        //av_dump_format(self.ctx, 0, ptr::null_mut(), 0);
 
         let mut channel_infos = vec![];
 
@@ -230,6 +115,7 @@ impl Demuxer {
             match (*(*stream).codecpar).codec_type {
                 AVMediaType::AVMEDIA_TYPE_VIDEO => {
                     channel_infos.push(StreamInfoChannel {
+                        stream,
                         index: (*stream).index as usize,
                         codec: (*(*stream).codecpar).codec_id as usize,
                         channel_type: StreamChannelType::Video,
@@ -242,6 +128,7 @@ impl Demuxer {
                 }
                 AVMediaType::AVMEDIA_TYPE_AUDIO => {
                     channel_infos.push(StreamInfoChannel {
+                        stream,
                         index: (*stream).index as usize,
                         codec: (*(*stream).codecpar).codec_id as usize,
                         channel_type: StreamChannelType::Audio,
@@ -254,6 +141,7 @@ impl Demuxer {
                 }
                 AVMediaType::AVMEDIA_TYPE_SUBTITLE => {
                     channel_infos.push(StreamInfoChannel {
+                        stream,
                         index: (*stream).index as usize,
                         codec: (*(*stream).codecpar).codec_id as usize,
                         channel_type: StreamChannelType::Subtitle,
@@ -296,12 +184,14 @@ impl Demuxer {
 
 impl Drop for Demuxer {
     fn drop(&mut self) {
-        unsafe {
-            if let DemuxerInput::Reader(_) = self.input {
-                drop(SlimBox::<dyn Read>::from_raw((*(*self.ctx).pb).opaque));
+        if !self.ctx.is_null() {
+            unsafe {
+                if let DemuxerInput::Reader(_, _) = self.input {
+                    drop(SlimBox::<dyn Read>::from_raw((*(*self.ctx).pb).opaque));
+                }
+                avformat_free_context(self.ctx);
+                self.ctx = ptr::null_mut();
             }
-            avformat_free_context(self.ctx);
-            self.ctx = ptr::null_mut();
         }
     }
 }
