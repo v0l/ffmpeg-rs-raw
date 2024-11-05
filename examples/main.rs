@@ -1,6 +1,6 @@
-use ffmpeg_rs_raw::{Decoder, Demuxer};
+use ffmpeg_rs_raw::{Decoder, Demuxer, DemuxerInfo};
+use ffmpeg_sys_the_third::AVHWDeviceType::{AV_HWDEVICE_TYPE_CUDA, AV_HWDEVICE_TYPE_VDPAU};
 use ffmpeg_sys_the_third::{av_frame_free, av_packet_free};
-use std::collections::HashMap;
 use std::env::args;
 use std::fs::File;
 use std::io::{Cursor, Read};
@@ -20,20 +20,6 @@ fn main() {
 
     let fd = read_as_file(path.clone());
     scan_input(fd);
-
-    let mut opt = HashMap::new();
-    opt.insert("analyzeduration".to_string(), "999".to_string());
-    let svg = include_bytes!("./cashu.svg");
-    let mut dx = Demuxer::new_custom_io(svg.as_slice(), Some("cashu.svg".to_string()));
-    dx.set_opt(opt.clone()).unwrap();
-    unsafe {
-        let mut decoder = Decoder::new();
-        let info = dx.probe_input().expect("probe failed");
-        for chan in &info.channels {
-            decoder.setup_decoder(chan, None).expect("setup failed");
-        }
-        loop_decoder(dx, decoder);
-    }
 }
 
 fn read_as_custom_io(path: PathBuf) -> Demuxer {
@@ -51,12 +37,20 @@ fn scan_input(mut demuxer: Demuxer) {
     unsafe {
         let info = demuxer.probe_input().expect("demuxer failed");
         println!("{}", info);
-        decode_input(demuxer);
+        decode_input(demuxer, info);
     }
 }
 
-unsafe fn decode_input(demuxer: Demuxer) {
-    let decoder = Decoder::new();
+unsafe fn decode_input(demuxer: Demuxer, info: DemuxerInfo) {
+    let mut decoder = Decoder::new();
+    decoder.enable_hw_decoder(AV_HWDEVICE_TYPE_VDPAU);
+    decoder.enable_hw_decoder(AV_HWDEVICE_TYPE_CUDA);
+    for ref stream in info.channels {
+        decoder
+            .setup_decoder(stream, None)
+            .expect("decoder setup failed");
+    }
+    println!("{}", decoder);
     loop_decoder(demuxer, decoder);
 }
 

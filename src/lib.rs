@@ -17,7 +17,12 @@ mod stream_info;
 macro_rules! return_ffmpeg_error {
     ($x:expr) => {
         if $x < 0 {
-            return Err(Error::msg(get_ffmpeg_error_msg($x)));
+            anyhow::bail!(crate::get_ffmpeg_error_msg($x))
+        }
+    };
+    ($x:expr,$msg:expr) => {
+        if $x < 0 {
+            anyhow::bail!(format!("{}: {}", $msg, crate::get_ffmpeg_error_msg($x)))
         }
     };
 }

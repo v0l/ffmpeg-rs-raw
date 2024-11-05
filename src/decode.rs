@@ -1,21 +1,25 @@
-use crate::{options_to_dict, StreamInfoChannel};
-use std::collections::HashMap;
+use crate::{options_to_dict, return_ffmpeg_error, StreamInfoChannel};
+use std::collections::{HashMap, HashSet};
 use std::ffi::CStr;
+use std::fmt::{Display, Formatter};
 use std::ptr;
 
 use anyhow::Error;
 use ffmpeg_sys_the_third::AVPictureType::AV_PICTURE_TYPE_NONE;
 use ffmpeg_sys_the_third::{
-    av_buffer_alloc, av_frame_alloc, avcodec_alloc_context3, avcodec_find_decoder,
-    avcodec_free_context, avcodec_get_name, avcodec_open2, avcodec_parameters_to_context,
-    avcodec_receive_frame, avcodec_send_packet, AVCodec, AVCodecContext, AVFrame, AVMediaType,
-    AVPacket, AVStream, AVERROR, AVERROR_EOF,
+    av_buffer_alloc, av_buffer_ref, av_frame_alloc, av_frame_copy_props, av_frame_free,
+    av_hwdevice_ctx_create, av_hwdevice_get_type_name, av_hwframe_transfer_data,
+    avcodec_alloc_context3, avcodec_find_decoder, avcodec_free_context, avcodec_get_hw_config,
+    avcodec_get_name, avcodec_open2, avcodec_parameters_to_context, avcodec_receive_frame,
+    avcodec_send_packet, AVCodec, AVCodecContext, AVCodecHWConfig, AVFrame, AVHWDeviceType,
+    AVMediaType, AVPacket, AVStream, AVERROR, AVERROR_EOF, AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX,
 };
 use libc::memcpy;
 
 pub struct DecoderCodecContext {
     pub context: *mut AVCodecContext,
     pub codec: *const AVCodec,
+    pub hw_config: *const AVCodecHWConfig,
 }
 
 impl DecoderCodecContext {
@@ -39,17 +43,61 @@ impl Drop for DecoderCodecContext {
     }
 }
 
+impl Display for DecoderCodecContext {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        unsafe {
+            let codec_name = CStr::from_ptr(avcodec_get_name((*self.codec).id))
+                .to_str()
+                .unwrap();
+            write!(
+                f,
+                "DecoderCodecContext: codec={}, hw={}",
+                codec_name,
+                if self.hw_config.is_null() {
+                    "no"
+                } else {
+                    CStr::from_ptr(av_hwdevice_get_type_name((*self.hw_config).device_type))
+                        .to_str()
+                        .unwrap()
+                }
+            )
+        }
+    }
+}
+
 unsafe impl Send for DecoderCodecContext {}
 unsafe impl Sync for DecoderCodecContext {}
 
 pub struct Decoder {
     codecs: HashMap<i32, DecoderCodecContext>,
+    /// List of [AVHWDeviceType] which are enabled
+    hw_decoder_types: Option<HashSet<AVHWDeviceType>>,
 }
 
+impl Display for Decoder {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        for (idx, codec) in &self.codecs {
+            writeln!(f, "{}: {}", idx, codec)?;
+        }
+        Ok(())
+    }
+}
 impl Decoder {
     pub fn new() -> Self {
         Self {
             codecs: HashMap::new(),
+            hw_decoder_types: None,
+        }
+    }
+
+    /// Enable hardware decoding with [hw_type]
+    pub fn enable_hw_decoder(&mut self, hw_type: AVHWDeviceType) {
+        if let Some(ref mut t) = self.hw_decoder_types {
+            t.insert(hw_type);
+        } else {
+            let mut hwt = HashSet::new();
+            hwt.insert(hw_type);
+            self.hw_decoder_types = Some(hwt);
         }
     }
 
@@ -91,8 +139,38 @@ impl Decoder {
             if context.is_null() {
                 anyhow::bail!("Failed to alloc context")
             }
-            if avcodec_parameters_to_context(context, (*stream).codecpar) != 0 {
-                anyhow::bail!("Failed to copy codec parameters to context")
+
+            let mut ret = avcodec_parameters_to_context(context, (*stream).codecpar);
+            return_ffmpeg_error!(ret, "Failed to copy codec parameters to context");
+
+            // try use HW decoder
+            let mut hw_config = ptr::null();
+            if let Some(ref hw_types) = self.hw_decoder_types {
+                let mut hw_buf_ref = ptr::null_mut();
+                let mut i = 0;
+                loop {
+                    hw_config = avcodec_get_hw_config(codec, i);
+                    i += 1;
+                    if hw_config.is_null() {
+                        break;
+                    }
+                    if !hw_types.contains(&(*hw_config).device_type) {
+                        continue;
+                    }
+                    let hw_flag = AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX as libc::c_int;
+                    if (*hw_config).methods & hw_flag == hw_flag {
+                        ret = av_hwdevice_ctx_create(
+                            &mut hw_buf_ref,
+                            (*hw_config).device_type,
+                            ptr::null_mut(),
+                            ptr::null_mut(),
+                            0,
+                        );
+                        return_ffmpeg_error!(ret, "Failed to create HW ctx");
+                        (*context).hw_device_ctx = av_buffer_ref(hw_buf_ref);
+                        break;
+                    }
+                }
             }
             let mut dict = if let Some(options) = options {
                 options_to_dict(options)?
@@ -100,10 +178,14 @@ impl Decoder {
                 ptr::null_mut()
             };
 
-            if avcodec_open2(context, codec, &mut dict) < 0 {
-                anyhow::bail!("Failed to open codec")
-            }
-            Ok(e.insert(DecoderCodecContext { context, codec }))
+            ret = avcodec_open2(context, codec, &mut dict);
+            return_ffmpeg_error!(ret, "Failed to open codec");
+
+            Ok(e.insert(DecoderCodecContext {
+                context,
+                codec,
+                hw_config,
+            }))
         } else {
             anyhow::bail!("Decoder already setup");
         }
@@ -146,13 +228,24 @@ impl Decoder {
 
             let mut pkgs = Vec::new();
             while ret >= 0 {
-                let frame = av_frame_alloc();
+                let mut frame = av_frame_alloc();
                 ret = avcodec_receive_frame(ctx.context, frame);
                 if ret < 0 {
                     if ret == AVERROR_EOF || ret == AVERROR(libc::EAGAIN) {
                         break;
                     }
                     return Err(Error::msg(format!("Failed to decode {}", ret)));
+                }
+
+                // copy frame from GPU
+                if !ctx.hw_config.is_null() {
+                    let sw_frame = av_frame_alloc();
+                    ret = av_hwframe_transfer_data(sw_frame, frame, 0);
+                    return_ffmpeg_error!(ret, "Failed to transfer data from GPU");
+
+                    av_frame_copy_props(sw_frame, frame);
+                    av_frame_free(&mut frame);
+                    frame = sw_frame;
                 }
 
                 (*frame).pict_type = AV_PICTURE_TYPE_NONE; // encoder prints warnings
