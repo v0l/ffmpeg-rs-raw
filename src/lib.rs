@@ -50,6 +50,29 @@ unsafe fn options_to_dict(options: HashMap<String, String>) -> Result<*mut AVDic
     Ok(dict)
 }
 
+/// Format seconds value into human-readable string
+pub fn format_time(secs: f32) -> String {
+    const MIN: f32 = 60.0;
+    const HR: f32 = MIN * 60.0;
+
+    if secs >= HR {
+        format!(
+            "{:0>2.0}h {:0>2.0}m {:0>2.0}s",
+            (secs / HR).floor(),
+            ((secs % HR) / MIN).floor(),
+            (secs % MIN).floor()
+        )
+    } else if secs >= MIN {
+        format!(
+            "{:0>2.0}m {:0>2.0}s",
+            (secs / MIN).floor(),
+            (secs % MIN).floor()
+        )
+    } else {
+        format!("{:0>2.2}s", secs)
+    }
+}
+
 fn list_opts(ctx: *mut libc::c_void) -> Result<Vec<String>, Error> {
     let mut opt_ptr: *const AVOption = ptr::null_mut();
 

@@ -1,4 +1,7 @@
-use ffmpeg_sys_the_third::{avcodec_get_name, AVMediaType, AVStream};
+use crate::format_time;
+use ffmpeg_sys_the_third::{
+    av_get_pix_fmt_name, av_get_sample_fmt_name, avcodec_get_name, AVMediaType, AVStream,
+};
 use std::ffi::CStr;
 use std::fmt::{Display, Formatter};
 use std::intrinsics::transmute;
@@ -55,9 +58,22 @@ impl DemuxerInfo {
 
 impl Display for DemuxerInfo {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Demuxer Info:")?;
+        let bitrate_str = if self.bitrate > 1_000_000 {
+            format!("{}M", self.bitrate / 1_000_000)
+        } else if self.bitrate > 1_000 {
+            format!("{}k", self.bitrate / 1_000)
+        } else {
+            self.bitrate.to_string()
+        };
+
+        write!(
+            f,
+            "Demuxer Info: duration={}, bitrate={}k",
+            format_time(self.duration),
+            bitrate_str
+        )?;
         for c in &self.channels {
-            write!(f, "\n{}", c)?;
+            write!(f, "\n  {}", c)?;
         }
         Ok(())
     }
@@ -115,15 +131,44 @@ impl StreamInfoChannel {
 impl Display for StreamInfoChannel {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let codec_name = unsafe { CStr::from_ptr(avcodec_get_name(transmute(self.codec as i32))) };
-        write!(
-            f,
-            "{} #{}: codec={},size={}x{},fps={}",
-            self.channel_type,
-            self.index,
-            codec_name.to_str().unwrap(),
-            self.width,
-            self.height,
-            self.fps
-        )
+        match self.channel_type {
+            StreamChannelType::Video => write!(
+                f,
+                "{} #{}: codec={},size={}x{},fps={:.3},pix_fmt={}",
+                self.channel_type,
+                self.index,
+                codec_name.to_str().unwrap(),
+                self.width,
+                self.height,
+                self.fps,
+                unsafe {
+                    CStr::from_ptr(av_get_pix_fmt_name(transmute(self.format as libc::c_int)))
+                }
+                .to_str()
+                .unwrap(),
+            ),
+            StreamChannelType::Audio => write!(
+                f,
+                "{} #{}: codec={},format={},sample_rate={}",
+                self.channel_type,
+                self.index,
+                codec_name.to_str().unwrap(),
+                unsafe {
+                    CStr::from_ptr(av_get_sample_fmt_name(transmute(
+                        self.format as libc::c_int,
+                    )))
+                }
+                .to_str()
+                .unwrap(),
+                self.sample_rate,
+            ),
+            StreamChannelType::Subtitle => write!(
+                f,
+                "{} #{}: codec={}",
+                self.channel_type,
+                self.index,
+                codec_name.to_str().unwrap()
+            ),
+        }
     }
 }

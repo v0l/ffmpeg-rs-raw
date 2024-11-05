@@ -1,4 +1,3 @@
-use crate::get_ffmpeg_error_msg;
 use std::mem::transmute;
 use std::ptr;
 
