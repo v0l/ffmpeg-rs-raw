@@ -1,5 +1,5 @@
 use anyhow::Error;
-use ffmpeg_sys_the_third::{av_dict_set, av_frame_alloc, av_frame_free, av_hwframe_transfer_data, av_make_error_string, av_opt_next, av_opt_set, AVDictionary, AVFrame, AVOption, AV_OPT_SEARCH_CHILDREN};
+use ffmpeg_sys_the_third::{av_dict_set, av_frame_alloc, av_frame_copy_props, av_frame_free, av_hwframe_transfer_data, av_make_error_string, av_opt_next, av_opt_set, AVDictionary, AVFrame, AVOption, AV_OPT_SEARCH_CHILDREN};
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ptr;
@@ -122,6 +122,7 @@ pub unsafe fn get_frame_from_hw(mut frame: *mut AVFrame) -> Result<*mut AVFrame,
         let new_frame = av_frame_alloc();
         let ret = av_hwframe_transfer_data(new_frame, frame, 0);
         return_ffmpeg_error!(ret);
+        av_frame_copy_props(new_frame, frame);
         av_frame_free(&mut frame);
         Ok(new_frame)
     }
