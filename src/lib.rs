@@ -1,5 +1,9 @@
 use anyhow::Error;
-use ffmpeg_sys_the_third::{av_dict_set, av_frame_alloc, av_frame_copy_props, av_frame_free, av_hwframe_transfer_data, av_make_error_string, av_opt_next, av_opt_set, AVDictionary, AVFrame, AVOption, AV_OPT_SEARCH_CHILDREN};
+use ffmpeg_sys_the_third::{
+    av_dict_set, av_frame_alloc, av_frame_copy_props, av_frame_free, av_hwframe_transfer_data,
+    av_make_error_string, av_opt_next, av_opt_set, AVDictionary, AVFrame, AVOption,
+    AV_OPT_SEARCH_CHILDREN,
+};
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ptr;

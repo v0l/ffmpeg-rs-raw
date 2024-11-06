@@ -2,10 +2,10 @@ use std::mem::transmute;
 use std::ptr;
 
 use crate::return_ffmpeg_error;
-use anyhow::Error;
+use anyhow::{bail, Error};
 use ffmpeg_sys_the_third::{
-    av_frame_alloc, av_frame_copy_props, sws_freeContext, sws_getContext, sws_scale_frame, AVFrame,
-    AVPixelFormat, SwsContext, SWS_BILINEAR,
+    av_frame_alloc, av_frame_copy_props, sws_freeContext, sws_getContext, sws_init_context,
+    sws_scale_frame, AVFrame, AVPixelFormat, SwsContext, SWS_BILINEAR,
 };
 
 pub struct Scaler {
@@ -29,10 +29,10 @@ impl Drop for Scaler {
 }
 
 impl Scaler {
-    pub fn new(format: AVPixelFormat) -> Self {
+    pub fn new(width: u16, height: u16, format: AVPixelFormat) -> Self {
         Self {
-            width: 0,
-            height: 0,
+            width,
+            height,
             format,
             ctx: ptr::null_mut(),
         }
@@ -43,8 +43,13 @@ impl Scaler {
         frame: *const AVFrame,
         width: u16,
         height: u16,
+        format: AVPixelFormat,
     ) -> Result<(), Error> {
-        if !self.ctx.is_null() && self.width == width && self.height == height {
+        if !self.ctx.is_null()
+            && self.width == width
+            && self.height == height
+            && self.format == format
+        {
             return Ok(());
         }
 
@@ -54,8 +59,6 @@ impl Scaler {
             self.ctx = ptr::null_mut();
         }
 
-        self.width = width;
-        self.height = height;
         self.ctx = sws_getContext(
             (*frame).width,
             (*frame).height,
@@ -69,8 +72,12 @@ impl Scaler {
             ptr::null_mut(),
         );
         if self.ctx.is_null() {
-            return Err(Error::msg("Failed to create scalar context"));
+            bail!("Failed to create scalar context");
         }
+
+        self.width = width;
+        self.height = height;
+        self.format = format;
         Ok(())
     }
 
@@ -79,12 +86,13 @@ impl Scaler {
         frame: *mut AVFrame,
         width: u16,
         height: u16,
+        format: AVPixelFormat,
     ) -> Result<*mut AVFrame, Error> {
         if !(*frame).hw_frames_ctx.is_null() {
-            anyhow::bail!("Hardware frames are not supported in this software scalar");
+            bail!("Hardware frames are not supported in this software scalar");
         }
 
-        self.setup_scaler(frame, width, height)?;
+        self.setup_scaler(frame, width, height, format)?;
 
         let dst_frame = av_frame_alloc();
         let ret = av_frame_copy_props(dst_frame, frame);
