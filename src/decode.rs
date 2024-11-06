@@ -207,11 +207,52 @@ impl Decoder {
         }
     }
 
+    /// Flush all decoders
+    pub unsafe fn flush(&mut self) -> Result<Vec<(*mut AVFrame, *mut AVStream)>, Error> {
+        let mut pkgs = Vec::new();
+        for ctx in self.codecs.values_mut() {
+            pkgs.extend(Self::decode_pkt_internal(
+                ctx.context,
+                ptr::null_mut(),
+                ptr::null_mut(),
+            )?);
+        }
+        Ok(pkgs)
+    }
+
+    pub unsafe fn decode_pkt_internal(
+        ctx: *mut AVCodecContext,
+        pkt: *mut AVPacket,
+        stream: *mut AVStream,
+    ) -> Result<Vec<(*mut AVFrame, *mut AVStream)>, Error> {
+        let mut ret = avcodec_send_packet(ctx, pkt);
+        return_ffmpeg_error!(ret, "Failed to decode packet");
+
+        let mut pkgs = Vec::new();
+        while ret >= 0 {
+            let frame = av_frame_alloc();
+            ret = avcodec_receive_frame(ctx, frame);
+            if ret < 0 {
+                if ret == AVERROR_EOF || ret == AVERROR(libc::EAGAIN) {
+                    break;
+                }
+                return Err(Error::msg(format!("Failed to decode {}", ret)));
+            }
+
+            (*frame).pict_type = AV_PICTURE_TYPE_NONE; // encoder prints warnings
+            pkgs.push((frame, stream));
+        }
+        Ok(pkgs)
+    }
+
     pub unsafe fn decode_pkt(
         &mut self,
         pkt: *mut AVPacket,
         stream: *mut AVStream,
     ) -> Result<Vec<(*mut AVFrame, *mut AVStream)>, Error> {
+        if pkt.is_null() {
+            return self.flush();
+        }
         let stream_index = (*pkt).stream_index;
         assert_eq!(
             stream_index,
@@ -220,26 +261,7 @@ impl Decoder {
         );
 
         if let Some(ctx) = self.codecs.get_mut(&stream_index) {
-            let mut ret = avcodec_send_packet(ctx.context, pkt);
-            if ret < 0 {
-                return Err(Error::msg(format!("Failed to decode packet {}", ret)));
-            }
-
-            let mut pkgs = Vec::new();
-            while ret >= 0 {
-                let frame = av_frame_alloc();
-                ret = avcodec_receive_frame(ctx.context, frame);
-                if ret < 0 {
-                    if ret == AVERROR_EOF || ret == AVERROR(libc::EAGAIN) {
-                        break;
-                    }
-                    return Err(Error::msg(format!("Failed to decode {}", ret)));
-                }
-
-                (*frame).pict_type = AV_PICTURE_TYPE_NONE; // encoder prints warnings
-                pkgs.push((frame, stream));
-            }
-            Ok(pkgs)
+            Self::decode_pkt_internal(ctx.context, pkt, stream)
         } else {
             Ok(vec![])
         }
