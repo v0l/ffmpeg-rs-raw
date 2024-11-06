@@ -18,6 +18,7 @@ use log::debug;
 pub struct DecoderCodecContext {
     pub context: *mut AVCodecContext,
     pub codec: *const AVCodec,
+    pub stream: *mut AVStream,
     pub hw_config: *const AVCodecHWConfig,
 }
 
@@ -200,6 +201,7 @@ impl Decoder {
             Ok(e.insert(DecoderCodecContext {
                 context,
                 codec,
+                stream,
                 hw_config,
             }))
         } else {
@@ -214,7 +216,7 @@ impl Decoder {
             pkgs.extend(Self::decode_pkt_internal(
                 ctx.context,
                 ptr::null_mut(),
-                ptr::null_mut(),
+                ctx.stream,
             )?);
         }
         Ok(pkgs)
