@@ -1,6 +1,5 @@
 use crate::{options_to_dict, return_ffmpeg_error, rstr, StreamInfoChannel};
 use std::collections::{HashMap, HashSet};
-use std::ffi::CStr;
 use std::fmt::{Display, Formatter};
 use std::ptr;
 

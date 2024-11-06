@@ -5,7 +5,6 @@ use ffmpeg_sys_the_third::{
     AV_OPT_SEARCH_CHILDREN,
 };
 use std::collections::HashMap;
-use std::ffi::CStr;
 use std::ptr;
 
 mod decode;

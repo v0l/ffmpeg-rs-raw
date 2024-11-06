@@ -2,7 +2,6 @@ use crate::{format_time, rstr};
 use ffmpeg_sys_the_third::{
     av_get_pix_fmt_name, av_get_sample_fmt_name, avcodec_get_name, AVMediaType, AVStream,
 };
-use std::ffi::CStr;
 use std::fmt::{Display, Formatter};
 use std::intrinsics::transmute;
 

@@ -1,6 +1,5 @@
-use ffmpeg_rs_raw::{Decoder, Demuxer, DemuxerInfo, Filter};
-use ffmpeg_sys_the_third::AVHWDeviceType::AV_HWDEVICE_TYPE_CUDA;
-use ffmpeg_sys_the_third::{av_frame_free, av_packet_free, AVMediaType};
+use ffmpeg_rs_raw::{get_frame_from_hw, Decoder, Demuxer, DemuxerInfo, Scaler};
+use ffmpeg_sys_the_third::{av_frame_free, av_packet_free, AVMediaType, AVPixelFormat};
 use log::{error, info};
 use std::env::args;
 use std::fs::File;
@@ -42,8 +41,8 @@ fn scan_input(mut demuxer: Demuxer) {
 
 unsafe fn decode_input(demuxer: Demuxer, info: DemuxerInfo) {
     let mut decoder = Decoder::new();
-    //decoder.enable_hw_decoder_any();
-    decoder.enable_hw_decoder(AV_HWDEVICE_TYPE_CUDA);
+    decoder.enable_hw_decoder_any();
+
     for ref stream in info.channels {
         decoder
             .setup_decoder(stream, None)
@@ -54,9 +53,7 @@ unsafe fn decode_input(demuxer: Demuxer, info: DemuxerInfo) {
 }
 
 unsafe fn loop_decoder(mut demuxer: Demuxer, mut decoder: Decoder) {
-    let mut filter =
-        Filter::parse(&format!("scale_cuda=w={}:h={}", -2, 1080)).expect("filter add failed");
-
+    let mut scale = Scaler::new();
     loop {
         let (mut pkt, stream) = demuxer.get_packet().expect("demuxer failed");
         if pkt.is_null() {
@@ -74,7 +71,10 @@ unsafe fn loop_decoder(mut demuxer: Demuxer, mut decoder: Decoder) {
             for (mut frame, _stream) in frames {
                 // do nothing but decode entire stream
                 if media_type == AVMediaType::AVMEDIA_TYPE_VIDEO {
-                    let mut new_frame = filter.process_frame(frame).expect("scale failed");
+                    frame = get_frame_from_hw(frame).expect("get frame failed");
+                    let mut new_frame = scale
+                        .process_frame(frame, 512, 512, AVPixelFormat::AV_PIX_FMT_RGBA)
+                        .expect("scale failed");
                     av_frame_free(&mut new_frame);
                 }
                 av_frame_free(&mut frame);

@@ -1,13 +1,12 @@
 use crate::{cstr, return_ffmpeg_error, rstr, set_opts};
 use anyhow::Error;
 use ffmpeg_sys_the_third::{
-    av_free, av_strdup, avfilter_get_by_name, avfilter_graph_alloc, avfilter_graph_alloc_filter,
+    av_strdup, avfilter_get_by_name, avfilter_graph_alloc, avfilter_graph_alloc_filter,
     avfilter_graph_config, avfilter_graph_create_filter, avfilter_graph_dump, avfilter_graph_parse,
     avfilter_inout_alloc, AVFilterContext, AVFilterGraph, AVFrame,
 };
 use log::debug;
 use std::collections::HashMap;
-use std::ffi::CStr;
 use std::ptr;
 
 pub struct Filter {
