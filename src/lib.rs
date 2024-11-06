@@ -36,24 +36,26 @@ macro_rules! cstr {
     };
 }
 
+#[macro_export]
+macro_rules! rstr {
+    ($str:expr) => {
+        core::ffi::CStr::from_ptr($str).to_str().unwrap()
+    };
+}
+
 fn get_ffmpeg_error_msg(ret: libc::c_int) -> String {
     unsafe {
         const BUF_SIZE: usize = 512;
         let mut buf: [libc::c_char; BUF_SIZE] = [0; BUF_SIZE];
         av_make_error_string(buf.as_mut_ptr(), BUF_SIZE, ret);
-        String::from(CStr::from_ptr(buf.as_ptr()).to_str().unwrap())
+        rstr!(buf.as_ptr()).to_string()
     }
 }
 
 unsafe fn options_to_dict(options: HashMap<String, String>) -> Result<*mut AVDictionary, Error> {
     let mut dict = ptr::null_mut();
     for (key, value) in options {
-        let ret = av_dict_set(
-            &mut dict,
-            format!("{}\0", key).as_ptr() as *const libc::c_char,
-            format!("{}\0", value).as_ptr() as *const libc::c_char,
-            0,
-        );
+        let ret = av_dict_set(&mut dict, cstr!(key), cstr!(value), 0);
         return_ffmpeg_error!(ret);
     }
     Ok(dict)
@@ -93,11 +95,7 @@ fn list_opts(ctx: *mut libc::c_void) -> Result<Vec<String>, Error> {
                 break;
             }
 
-            ret.push(
-                CStr::from_ptr((*opt_ptr).name)
-                    .to_string_lossy()
-                    .to_string(),
-            );
+            ret.push(rstr!((*opt_ptr).name).to_string());
         }
     }
     Ok(ret)
@@ -106,12 +104,7 @@ fn list_opts(ctx: *mut libc::c_void) -> Result<Vec<String>, Error> {
 fn set_opts(ctx: *mut libc::c_void, options: HashMap<String, String>) -> Result<(), Error> {
     unsafe {
         for (key, value) in options {
-            let ret = av_opt_set(
-                ctx,
-                format!("{}\0", key).as_ptr() as *const libc::c_char,
-                format!("{}\0", value).as_ptr() as *const libc::c_char,
-                AV_OPT_SEARCH_CHILDREN,
-            );
+            let ret = av_opt_set(ctx, cstr!(key), cstr!(value), AV_OPT_SEARCH_CHILDREN);
             return_ffmpeg_error!(ret);
         }
     }

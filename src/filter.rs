@@ -1,10 +1,9 @@
-use crate::{cstr, return_ffmpeg_error, set_opts};
+use crate::{cstr, return_ffmpeg_error, rstr, set_opts};
 use anyhow::Error;
 use ffmpeg_sys_the_third::{
     av_free, av_strdup, avfilter_get_by_name, avfilter_graph_alloc, avfilter_graph_alloc_filter,
     avfilter_graph_config, avfilter_graph_create_filter, avfilter_graph_dump, avfilter_graph_parse,
-    avfilter_graph_parse2, avfilter_graph_parse_ptr, avfilter_inout_alloc, AVFilterContext,
-    AVFilterGraph, AVFrame,
+    avfilter_inout_alloc, AVFilterContext, AVFilterGraph, AVFrame,
 };
 use log::debug;
 use std::collections::HashMap;
@@ -26,7 +25,7 @@ impl Filter {
     ///
     /// https://ffmpeg.org/ffmpeg-filters.html
     pub unsafe fn parse(graph: &str) -> Result<Self, Error> {
-        let mut ctx = avfilter_graph_alloc();
+        let ctx = avfilter_graph_alloc();
         let inputs = avfilter_inout_alloc();
         let outputs = avfilter_inout_alloc();
         let src = avfilter_get_by_name(cstr!("buffer"));
@@ -95,9 +94,8 @@ impl Filter {
     }
 
     pub unsafe fn build(&mut self) -> Result<(), Error> {
-        let mut d = avfilter_graph_dump(self.graph, ptr::null_mut());
-        debug!("{}", CStr::from_ptr(d).to_string_lossy());
-        av_free(d as *mut _);
+        let d = rstr!(avfilter_graph_dump(self.graph, ptr::null_mut()));
+        debug!("{}", d);
 
         let ret = avfilter_graph_config(self.graph, ptr::null_mut());
         return_ffmpeg_error!(ret, "Failed to build filter");

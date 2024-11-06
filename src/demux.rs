@@ -1,4 +1,4 @@
-use crate::return_ffmpeg_error;
+use crate::{cstr, return_ffmpeg_error};
 use crate::{get_ffmpeg_error_msg, DemuxerInfo, StreamChannelType, StreamInfoChannel};
 use anyhow::Error;
 use ffmpeg_sys_the_third::*;
@@ -68,7 +68,7 @@ impl Demuxer {
         match &mut self.input {
             DemuxerInput::Url(input) => avformat_open_input(
                 &mut self.ctx,
-                format!("{}\0", input).as_ptr() as *const libc::c_char,
+                cstr!(input),
                 ptr::null_mut(),
                 ptr::null_mut(),
             ),
@@ -89,7 +89,7 @@ impl Demuxer {
                 avformat_open_input(
                     &mut self.ctx,
                     if let Some(url) = url {
-                        format!("{}\0", url).as_ptr() as *const libc::c_char
+                        cstr!(url)
                     } else {
                         ptr::null_mut()
                     },

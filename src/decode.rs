@@ -1,4 +1,4 @@
-use crate::{options_to_dict, return_ffmpeg_error, StreamInfoChannel};
+use crate::{options_to_dict, return_ffmpeg_error, rstr, StreamInfoChannel};
 use std::collections::{HashMap, HashSet};
 use std::ffi::CStr;
 use std::fmt::{Display, Formatter};
@@ -46,9 +46,7 @@ impl Drop for DecoderCodecContext {
 impl Display for DecoderCodecContext {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         unsafe {
-            let codec_name = CStr::from_ptr(avcodec_get_name((*self.codec).id))
-                .to_str()
-                .unwrap();
+            let codec_name = rstr!(avcodec_get_name((*self.codec).id));
             write!(
                 f,
                 "DecoderCodecContext: codec={}, hw={}",
@@ -56,9 +54,7 @@ impl Display for DecoderCodecContext {
                 if self.hw_config.is_null() {
                     "no"
                 } else {
-                    CStr::from_ptr(av_hwdevice_get_type_name((*self.hw_config).device_type))
-                        .to_str()
-                        .unwrap()
+                    rstr!(av_hwdevice_get_type_name((*self.hw_config).device_type))
                 }
             )
         }
@@ -148,7 +144,7 @@ impl Decoder {
             if codec.is_null() {
                 anyhow::bail!(
                     "Failed to find codec: {}",
-                    CStr::from_ptr(avcodec_get_name((*codec_par).codec_id)).to_str()?
+                    rstr!(avcodec_get_name((*codec_par).codec_id))
                 )
             }
             let context = avcodec_alloc_context3(codec);
@@ -159,7 +155,7 @@ impl Decoder {
             let mut ret = avcodec_parameters_to_context(context, (*stream).codecpar);
             return_ffmpeg_error!(ret, "Failed to copy codec parameters to context");
 
-            let codec_name = CStr::from_ptr(avcodec_get_name((*codec).id)).to_str()?;
+            let codec_name = rstr!(avcodec_get_name((*codec).id));
             // try use HW decoder
             let mut hw_config = ptr::null();
             if let Some(ref hw_types) = self.hw_decoder_types {
@@ -171,9 +167,7 @@ impl Decoder {
                     if hw_config.is_null() {
                         break;
                     }
-                    let hw_name =
-                        CStr::from_ptr(av_hwdevice_get_type_name((*hw_config).device_type))
-                            .to_str()?;
+                    let hw_name = rstr!(av_hwdevice_get_type_name((*hw_config).device_type));
                     if !hw_types.contains(&(*hw_config).device_type) {
                         debug!("skipping hwaccel={}_{}", codec_name, hw_name);
                         continue;
@@ -234,7 +228,7 @@ impl Decoder {
 
             let mut pkgs = Vec::new();
             while ret >= 0 {
-                let mut frame = av_frame_alloc();
+                let frame = av_frame_alloc();
                 ret = avcodec_receive_frame(ctx.context, frame);
                 if ret < 0 {
                     if ret == AVERROR_EOF || ret == AVERROR(libc::EAGAIN) {

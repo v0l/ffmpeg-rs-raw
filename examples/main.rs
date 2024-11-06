@@ -1,8 +1,5 @@
-use ffmpeg_rs_raw::{Decoder, Demuxer, DemuxerInfo, Filter, Scaler};
-use ffmpeg_sys_the_third::AVHWDeviceType::{
-    AV_HWDEVICE_TYPE_CUDA, AV_HWDEVICE_TYPE_D3D12VA, AV_HWDEVICE_TYPE_MEDIACODEC,
-    AV_HWDEVICE_TYPE_OPENCL, AV_HWDEVICE_TYPE_VDPAU, AV_HWDEVICE_TYPE_VULKAN,
-};
+use ffmpeg_rs_raw::{Decoder, Demuxer, DemuxerInfo, Filter};
+use ffmpeg_sys_the_third::AVHWDeviceType::AV_HWDEVICE_TYPE_CUDA;
 use ffmpeg_sys_the_third::{av_frame_free, av_packet_free, AVMediaType};
 use log::{error, info};
 use std::env::args;

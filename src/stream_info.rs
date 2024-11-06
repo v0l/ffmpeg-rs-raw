@@ -1,4 +1,4 @@
-use crate::format_time;
+use crate::{format_time, rstr};
 use ffmpeg_sys_the_third::{
     av_get_pix_fmt_name, av_get_sample_fmt_name, avcodec_get_name, AVMediaType, AVStream,
 };
@@ -130,44 +130,36 @@ impl StreamInfoChannel {
 
 impl Display for StreamInfoChannel {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let codec_name = unsafe { CStr::from_ptr(avcodec_get_name(transmute(self.codec as i32))) };
+        let codec_name = unsafe { rstr!(avcodec_get_name(transmute(self.codec as i32))) };
         match self.channel_type {
             StreamChannelType::Video => write!(
                 f,
                 "{} #{}: codec={},size={}x{},fps={:.3},pix_fmt={}",
                 self.channel_type,
                 self.index,
-                codec_name.to_str().unwrap(),
+                codec_name,
                 self.width,
                 self.height,
                 self.fps,
-                unsafe {
-                    CStr::from_ptr(av_get_pix_fmt_name(transmute(self.format as libc::c_int)))
-                }
-                .to_str()
-                .unwrap(),
+                unsafe { rstr!(av_get_pix_fmt_name(transmute(self.format as libc::c_int))) },
             ),
             StreamChannelType::Audio => write!(
                 f,
                 "{} #{}: codec={},format={},sample_rate={}",
                 self.channel_type,
                 self.index,
-                codec_name.to_str().unwrap(),
+                codec_name,
                 unsafe {
-                    CStr::from_ptr(av_get_sample_fmt_name(transmute(
+                    rstr!(av_get_sample_fmt_name(transmute(
                         self.format as libc::c_int,
                     )))
-                }
-                .to_str()
-                .unwrap(),
+                },
                 self.sample_rate,
             ),
             StreamChannelType::Subtitle => write!(
                 f,
                 "{} #{}: codec={}",
-                self.channel_type,
-                self.index,
-                codec_name.to_str().unwrap()
+                self.channel_type, self.index, codec_name
             ),
         }
     }

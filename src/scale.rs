@@ -1,12 +1,13 @@
 use std::mem::transmute;
 use std::ptr;
 
-use crate::return_ffmpeg_error;
+use crate::{return_ffmpeg_error, rstr};
 use anyhow::{bail, Error};
 use ffmpeg_sys_the_third::{
-    av_frame_alloc, av_frame_copy_props, sws_freeContext, sws_getContext, sws_init_context,
+    av_frame_alloc, av_frame_copy_props, av_get_pix_fmt_name, sws_freeContext, sws_getContext,
     sws_scale_frame, AVFrame, AVPixelFormat, SwsContext, SWS_BILINEAR,
 };
+use log::trace;
 
 pub struct Scaler {
     width: u16,
@@ -17,8 +18,6 @@ pub struct Scaler {
 
 unsafe impl Send for Scaler {}
 
-unsafe impl Sync for Scaler {}
-
 impl Drop for Scaler {
     fn drop(&mut self) {
         unsafe {
@@ -28,12 +27,18 @@ impl Drop for Scaler {
     }
 }
 
+impl Default for Scaler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Scaler {
-    pub fn new(width: u16, height: u16, format: AVPixelFormat) -> Self {
+    pub fn new() -> Self {
         Self {
-            width,
-            height,
-            format,
+            width: 0,
+            height: 0,
+            format: AVPixelFormat::AV_PIX_FMT_YUV420P,
             ctx: ptr::null_mut(),
         }
     }
@@ -75,6 +80,16 @@ impl Scaler {
             bail!("Failed to create scalar context");
         }
 
+        trace!(
+            "scale setup: {}x{}@{} => {}x{}@{}",
+            (*frame).width,
+            (*frame).height,
+            rstr!(av_get_pix_fmt_name(transmute((*frame).format))),
+            width,
+            height,
+            rstr!(av_get_pix_fmt_name(format))
+        );
+
         self.width = width;
         self.height = height;
         self.format = format;
@@ -102,5 +117,56 @@ impl Scaler {
         return_ffmpeg_error!(ret);
 
         Ok(dst_frame)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ffmpeg_sys_the_third::{
+        av_frame_alloc, av_frame_free, av_frame_get_buffer, AVFrame, AVPixelFormat,
+    };
+
+    unsafe fn blank_frame() -> *mut AVFrame {
+        let frame = av_frame_alloc();
+        (*frame).width = 512;
+        (*frame).height = 512;
+        (*frame).format = AVPixelFormat::AV_PIX_FMT_RGB24 as libc::c_int;
+        av_frame_get_buffer(frame, 0);
+        frame
+    }
+
+    #[test]
+    fn scale_rgb24_yuv420() {
+        unsafe {
+            let mut frame = blank_frame();
+            let mut scaler = Scaler::new();
+
+            // downscale
+            let mut out_frame = scaler
+                .process_frame(frame, 128, 128, AVPixelFormat::AV_PIX_FMT_YUV420P)
+                .expect("Failed to process frame");
+            assert_eq!((*out_frame).width, 128);
+            assert_eq!((*out_frame).height, 128);
+            assert_eq!(
+                (*out_frame).format,
+                transmute(AVPixelFormat::AV_PIX_FMT_YUV420P)
+            );
+            av_frame_free(&mut out_frame);
+
+            // upscale
+            let mut out_frame = scaler
+                .process_frame(frame, 1024, 1024, AVPixelFormat::AV_PIX_FMT_YUV420P)
+                .expect("Failed to process frame");
+            assert_eq!((*out_frame).width, 1024);
+            assert_eq!((*out_frame).height, 1024);
+            assert_eq!(
+                (*out_frame).format,
+                transmute(AVPixelFormat::AV_PIX_FMT_YUV420P)
+            );
+            av_frame_free(&mut out_frame);
+
+            av_frame_free(&mut frame);
+        }
     }
 }
