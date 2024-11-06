@@ -9,6 +9,7 @@ use std::ptr;
 
 mod decode;
 mod demux;
+mod filter;
 mod resample;
 mod scale;
 mod stream_info;
@@ -24,6 +25,13 @@ macro_rules! return_ffmpeg_error {
         if $x < 0 {
             anyhow::bail!(format!("{}: {}", $msg, crate::get_ffmpeg_error_msg($x)))
         }
+    };
+}
+
+#[macro_export]
+macro_rules! cstr {
+    ($str:expr) => {
+        format!("{}\0", $str).as_ptr() as *const libc::c_char
     };
 }
 
@@ -112,6 +120,7 @@ fn set_opts(ctx: *mut libc::c_void, options: HashMap<String, String>) -> Result<
 pub use decode::*;
 pub use demux::*;
 pub use ffmpeg_sys_the_third;
+pub use filter::*;
 pub use resample::*;
 pub use scale::*;
 pub use stream_info::*;

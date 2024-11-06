@@ -68,7 +68,7 @@ impl Display for DemuxerInfo {
 
         write!(
             f,
-            "Demuxer Info: duration={}, bitrate={}k",
+            "Demuxer Info: duration={}, bitrate={}",
             format_time(self.duration),
             bitrate_str
         )?;

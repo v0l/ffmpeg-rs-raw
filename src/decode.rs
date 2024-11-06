@@ -7,13 +7,14 @@ use std::ptr;
 use anyhow::Error;
 use ffmpeg_sys_the_third::AVPictureType::AV_PICTURE_TYPE_NONE;
 use ffmpeg_sys_the_third::{
-    av_buffer_ref, av_frame_alloc, av_frame_copy_props, av_frame_free, av_hwdevice_ctx_create,
-    av_hwdevice_get_type_name, av_hwframe_transfer_data, avcodec_alloc_context3,
-    avcodec_find_decoder, avcodec_free_context, avcodec_get_hw_config, avcodec_get_name,
-    avcodec_open2, avcodec_parameters_to_context, avcodec_receive_frame, avcodec_send_packet,
-    AVCodec, AVCodecContext, AVCodecHWConfig, AVFrame, AVHWDeviceType, AVPacket, AVStream, AVERROR,
-    AVERROR_EOF, AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX,
+    av_buffer_ref, av_frame_alloc, av_hwdevice_ctx_create, av_hwdevice_get_type_name,
+    av_hwdevice_iterate_types, avcodec_alloc_context3, avcodec_find_decoder, avcodec_free_context,
+    avcodec_get_hw_config, avcodec_get_name, avcodec_open2, avcodec_parameters_to_context,
+    avcodec_receive_frame, avcodec_send_packet, AVCodec, AVCodecContext, AVCodecHWConfig, AVFrame,
+    AVHWDeviceType, AVPacket, AVStream, AVERROR, AVERROR_EOF,
+    AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX,
 };
+use log::debug;
 
 pub struct DecoderCodecContext {
     pub context: *mut AVCodecContext,
@@ -100,6 +101,22 @@ impl Decoder {
         }
     }
 
+    /// Enable hardware decoding
+    pub fn enable_hw_decoder_any(&mut self) {
+        let mut res = HashSet::new();
+        let mut hwt = AVHWDeviceType::AV_HWDEVICE_TYPE_NONE;
+        unsafe {
+            loop {
+                hwt = av_hwdevice_iterate_types(hwt);
+                if hwt == AVHWDeviceType::AV_HWDEVICE_TYPE_NONE {
+                    break;
+                }
+                res.insert(hwt);
+            }
+        }
+        self.hw_decoder_types = Some(res);
+    }
+
     /// Set up a decoder for a given channel
     pub fn setup_decoder(
         &mut self,
@@ -142,6 +159,7 @@ impl Decoder {
             let mut ret = avcodec_parameters_to_context(context, (*stream).codecpar);
             return_ffmpeg_error!(ret, "Failed to copy codec parameters to context");
 
+            let codec_name = CStr::from_ptr(avcodec_get_name((*codec).id)).to_str()?;
             // try use HW decoder
             let mut hw_config = ptr::null();
             if let Some(ref hw_types) = self.hw_decoder_types {
@@ -153,7 +171,11 @@ impl Decoder {
                     if hw_config.is_null() {
                         break;
                     }
+                    let hw_name =
+                        CStr::from_ptr(av_hwdevice_get_type_name((*hw_config).device_type))
+                            .to_str()?;
                     if !hw_types.contains(&(*hw_config).device_type) {
+                        debug!("skipping hwaccel={}_{}", codec_name, hw_name);
                         continue;
                     }
                     let hw_flag = AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX as libc::c_int;
@@ -167,6 +189,7 @@ impl Decoder {
                         );
                         return_ffmpeg_error!(ret, "Failed to create HW ctx");
                         (*context).hw_device_ctx = av_buffer_ref(hw_buf_ref);
+                        debug!("using hwaccel={}_{}", codec_name, hw_name);
                         break;
                     }
                 }
@@ -180,6 +203,7 @@ impl Decoder {
             ret = avcodec_open2(context, codec, &mut dict);
             return_ffmpeg_error!(ret, "Failed to open codec");
 
+            debug!("opened decoder={}", codec_name);
             Ok(e.insert(DecoderCodecContext {
                 context,
                 codec,
@@ -217,17 +241,6 @@ impl Decoder {
                         break;
                     }
                     return Err(Error::msg(format!("Failed to decode {}", ret)));
-                }
-
-                // copy frame from GPU
-                if !ctx.hw_config.is_null() {
-                    let sw_frame = av_frame_alloc();
-                    ret = av_hwframe_transfer_data(sw_frame, frame, 0);
-                    return_ffmpeg_error!(ret, "Failed to transfer data from GPU");
-
-                    av_frame_copy_props(sw_frame, frame);
-                    av_frame_free(&mut frame);
-                    frame = sw_frame;
                 }
 
                 (*frame).pict_type = AV_PICTURE_TYPE_NONE; // encoder prints warnings
