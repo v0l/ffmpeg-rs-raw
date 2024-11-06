@@ -80,6 +80,10 @@ impl Scaler {
         width: u16,
         height: u16,
     ) -> Result<*mut AVFrame, Error> {
+        if !(*frame).hw_frames_ctx.is_null() {
+            anyhow::bail!("Hardware frames are not supported in this software scalar");
+        }
+
         self.setup_scaler(frame, width, height)?;
 
         let dst_frame = av_frame_alloc();

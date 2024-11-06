@@ -54,6 +54,9 @@ impl Resample {
     }
 
     pub unsafe fn process_frame(&mut self, frame: *mut AVFrame) -> Result<*mut AVFrame, Error> {
+        if !(*frame).hw_frames_ctx.is_null() {
+            anyhow::bail!("Hardware frames are not supported in this software re-sampler");
+        }
         self.setup_swr(frame)?;
 
         let mut out_frame = av_frame_alloc();
