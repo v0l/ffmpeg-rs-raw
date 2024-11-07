@@ -1,4 +1,5 @@
 use crate::{options_to_dict, return_ffmpeg_error, rstr, StreamInfoChannel};
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::ptr;
@@ -13,7 +14,7 @@ use ffmpeg_sys_the_third::{
     AVHWDeviceType, AVPacket, AVStream, AVERROR, AVERROR_EOF,
     AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX,
 };
-use log::debug;
+use log::trace;
 
 pub struct DecoderCodecContext {
     pub context: *mut AVCodecContext,
@@ -31,6 +32,17 @@ impl DecoderCodecContext {
     pub fn list_opts(&self) -> Result<Vec<String>, Error> {
         crate::list_opts(self.context as *mut libc::c_void)
     }
+
+    /// Get the codec name
+    pub fn codec_name(&self) -> String {
+        let codec_name = unsafe { rstr!(avcodec_get_name((*self.codec).id)) };
+        if self.hw_config.is_null() {
+            codec_name.to_string()
+        } else {
+            let hw = unsafe { rstr!(av_hwdevice_get_type_name((*self.hw_config).device_type)) };
+            format!("{}_{}", codec_name, hw)
+        }
+    }
 }
 
 impl Drop for DecoderCodecContext {
@@ -45,39 +57,24 @@ impl Drop for DecoderCodecContext {
 
 impl Display for DecoderCodecContext {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        unsafe {
-            let codec_name = rstr!(avcodec_get_name((*self.codec).id));
-            write!(
-                f,
-                "DecoderCodecContext: codec={}, hw={}",
-                codec_name,
-                if self.hw_config.is_null() {
-                    "no"
-                } else {
-                    rstr!(av_hwdevice_get_type_name((*self.hw_config).device_type))
-                }
-            )
-        }
+        write!(
+            f,
+            "stream={}, codec={}",
+            unsafe { (*self.stream).index },
+            self.codec_name()
+        )
     }
 }
 
 unsafe impl Send for DecoderCodecContext {}
-unsafe impl Sync for DecoderCodecContext {}
 
 pub struct Decoder {
+    /// Decoder instances by stream index
     codecs: HashMap<i32, DecoderCodecContext>,
     /// List of [AVHWDeviceType] which are enabled
     hw_decoder_types: Option<HashSet<AVHWDeviceType>>,
 }
 
-impl Display for Decoder {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        for (idx, codec) in &self.codecs {
-            writeln!(f, "{}: {}", idx, codec)?;
-        }
-        Ok(())
-    }
-}
 impl Decoder {
     pub fn new() -> Self {
         Self {
@@ -122,6 +119,33 @@ impl Decoder {
         unsafe { self.setup_decoder_for_stream(channel.stream, options) }
     }
 
+    /// Get the codec context of a stream by stream index
+    pub fn get_decoder(&self, stream: i32) -> Option<&DecoderCodecContext> {
+        self.codecs.get(&stream)
+    }
+
+    /// List supported hardware decoding for a given codec instance
+    pub unsafe fn list_supported_hw_accel(
+        &self,
+        codec: *const AVCodec,
+    ) -> impl Iterator<Item = AVHWDeviceType> {
+        let mut hw_config = ptr::null();
+        let mut i = 0;
+        let mut ret = Vec::new();
+        loop {
+            hw_config = avcodec_get_hw_config(codec, i);
+            i += 1;
+            if hw_config.is_null() {
+                break;
+            }
+            let hw_flag = AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX as libc::c_int;
+            if (*hw_config).methods & hw_flag == hw_flag {
+                ret.push((*hw_config).device_type);
+            }
+        }
+        ret.into_iter()
+    }
+
     /// Set up a decoder from an [AVStream]
     pub unsafe fn setup_decoder_for_stream(
         &mut self,
@@ -139,7 +163,7 @@ impl Decoder {
             "Codec parameters are missing from stream"
         );
 
-        if let std::collections::hash_map::Entry::Vacant(e) = self.codecs.entry((*stream).index) {
+        if let Entry::Vacant(e) = self.codecs.entry((*stream).index) {
             let codec = avcodec_find_decoder((*codec_par).codec_id);
             if codec.is_null() {
                 anyhow::bail!(
@@ -169,7 +193,7 @@ impl Decoder {
                     }
                     let hw_name = rstr!(av_hwdevice_get_type_name((*hw_config).device_type));
                     if !hw_types.contains(&(*hw_config).device_type) {
-                        debug!("skipping hwaccel={}_{}", codec_name, hw_name);
+                        trace!("skipping hwaccel={}_{}", codec_name, hw_name);
                         continue;
                     }
                     let hw_flag = AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX as libc::c_int;
@@ -183,7 +207,6 @@ impl Decoder {
                         );
                         return_ffmpeg_error!(ret, "Failed to create HW ctx");
                         (*context).hw_device_ctx = av_buffer_ref(hw_buf_ref);
-                        debug!("using hwaccel={}_{}", codec_name, hw_name);
                         break;
                     }
                 }
@@ -197,13 +220,14 @@ impl Decoder {
             ret = avcodec_open2(context, codec, &mut dict);
             return_ffmpeg_error!(ret, "Failed to open codec");
 
-            debug!("opened decoder={}", codec_name);
-            Ok(e.insert(DecoderCodecContext {
+            let ctx = DecoderCodecContext {
                 context,
                 codec,
                 stream,
                 hw_config,
-            }))
+            };
+            trace!("setup decoder={}", ctx);
+            Ok(e.insert(ctx))
         } else {
             anyhow::bail!("Decoder already setup");
         }
