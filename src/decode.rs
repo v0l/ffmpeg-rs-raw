@@ -35,9 +35,9 @@ impl DecoderCodecContext {
 
     /// Get the codec name
     pub fn codec_name(&self) -> String {
-        let codec_name = unsafe { rstr!(avcodec_get_name((*self.codec).id)) };
+        let codec_name = unsafe { rstr!((*(*self).codec).name) };
         if self.hw_config.is_null() {
-            codec_name.to_string()
+            format!("{}", codec_name)
         } else {
             let hw = unsafe { rstr!(av_hwdevice_get_type_name((*self.hw_config).device_type)) };
             format!("{}_{}", codec_name, hw)

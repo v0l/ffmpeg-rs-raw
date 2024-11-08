@@ -48,7 +48,6 @@ unsafe fn decode_input(demuxer: Demuxer, info: DemuxerInfo) {
             .setup_decoder(stream, None)
             .expect("decoder setup failed");
     }
-    info!("{}", decoder);
     loop_decoder(demuxer, decoder);
 }
 

@@ -38,7 +38,11 @@ macro_rules! cstr {
 #[macro_export]
 macro_rules! rstr {
     ($str:expr) => {
-        core::ffi::CStr::from_ptr($str).to_str().unwrap()
+        if !$str.is_null() {
+            core::ffi::CStr::from_ptr($str).to_str().unwrap()
+        } else {
+            ""
+        }
     };
 }
 
