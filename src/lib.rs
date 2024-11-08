@@ -9,6 +9,7 @@ use std::ptr;
 
 mod decode;
 mod demux;
+mod encode;
 mod filter;
 mod resample;
 mod scale;
@@ -126,6 +127,36 @@ pub unsafe fn get_frame_from_hw(mut frame: *mut AVFrame) -> Result<*mut AVFrame,
         av_frame_free(&mut frame);
         Ok(new_frame)
     }
+}
+
+#[cfg(test)]
+pub unsafe fn generate_test_frame() -> *mut AVFrame {
+    use ffmpeg_sys_the_third::{av_frame_get_buffer, AVPixelFormat};
+    use std::mem::transmute;
+
+    let frame = av_frame_alloc();
+    (*frame).width = 512;
+    (*frame).height = 512;
+    (*frame).format = transmute(AVPixelFormat::AV_PIX_FMT_RGB24);
+    av_frame_get_buffer(frame, 0);
+
+    let mut lx = 0;
+    for line in 0..(*frame).height {
+        let c = lx % 3;
+        for y in 0..(*frame).width as usize {
+            let ptr = (*frame).data[0];
+            let offset = (line * (*frame).linesize[0]) as usize + (y * 3);
+            match c {
+                0 => *ptr.add(offset) = 0xff,
+                1 => *ptr.add(offset + 1) = 0xff,
+                2 => *ptr.add(offset + 2) = 0xff,
+                _ => {}
+            }
+        }
+        lx += 1;
+    }
+
+    frame
 }
 
 pub use decode::*;

@@ -123,23 +123,13 @@ impl Scaler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ffmpeg_sys_the_third::{
-        av_frame_alloc, av_frame_free, av_frame_get_buffer, AVFrame, AVPixelFormat,
-    };
-
-    unsafe fn blank_frame() -> *mut AVFrame {
-        let frame = av_frame_alloc();
-        (*frame).width = 512;
-        (*frame).height = 512;
-        (*frame).format = AVPixelFormat::AV_PIX_FMT_RGB24 as libc::c_int;
-        av_frame_get_buffer(frame, 0);
-        frame
-    }
+    use crate::generate_test_frame;
+    use ffmpeg_sys_the_third::{av_frame_free, AVPixelFormat};
 
     #[test]
     fn scale_rgb24_yuv420() {
         unsafe {
-            let mut frame = blank_frame();
+            let mut frame = generate_test_frame();
             let mut scaler = Scaler::new();
 
             // downscale
