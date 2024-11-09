@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 use std::{ptr, slice};
 
-use crate::{get_ffmpeg_error_msg, options_to_dict, return_ffmpeg_error};
+use crate::{bail_ffmpeg, get_ffmpeg_error_msg, options_to_dict};
 use anyhow::{bail, Error};
 use ffmpeg_sys_the_third::{
-    av_channel_layout_default, av_packet_alloc, av_packet_free, avcodec_alloc_context3,
-    avcodec_find_encoder, avcodec_get_supported_config, avcodec_open2, avcodec_receive_packet,
-    avcodec_send_frame, AVChannelLayout, AVCodec, AVCodecConfig, AVCodecContext, AVCodecID,
-    AVFrame, AVPacket, AVPixelFormat, AVRational, AVSampleFormat, AVERROR, AVERROR_EOF,
+    av_channel_layout_default, av_d2q, av_inv_q, av_packet_alloc, av_packet_free,
+    avcodec_alloc_context3, avcodec_find_encoder, avcodec_free_context,
+    avcodec_get_supported_config, avcodec_open2, avcodec_receive_packet, avcodec_send_frame,
+    AVChannelLayout, AVCodec, AVCodecConfig, AVCodecContext, AVCodecID, AVFrame, AVPacket,
+    AVPixelFormat, AVRational, AVSampleFormat, AVERROR, AVERROR_EOF,
 };
 use libc::EAGAIN;
 
@@ -16,7 +17,15 @@ pub struct Encoder {
     codec: *const AVCodec,
 }
 
-unsafe impl Send for Encoder {}
+impl Drop for Encoder {
+    fn drop(&mut self) {
+        unsafe {
+            if !self.ctx.is_null() {
+                avcodec_free_context(&mut self.ctx);
+            }
+        }
+    }
+}
 
 impl Encoder {
     /// Create a new encoder with the specified codec
@@ -36,6 +45,16 @@ impl Encoder {
         }
     }
 
+    /// Get the codec
+    pub fn codec(&self) -> *const AVCodec {
+        self.codec
+    }
+
+    /// Get the codec context
+    pub fn codec_context(&self) -> *const AVCodecContext {
+        self.ctx
+    }
+
     /// List supported configs (see [avcodec_get_supported_config])
     pub unsafe fn list_configs<'a, T>(&mut self, cfg: AVCodecConfig) -> Result<&'a [T], Error> {
         let mut dst = ptr::null_mut();
@@ -48,14 +67,8 @@ impl Encoder {
             ptr::addr_of_mut!(dst) as _,
             &mut num_dst,
         );
-        return_ffmpeg_error!(ret);
+        bail_ffmpeg!(ret);
         Ok(slice::from_raw_parts(dst, num_dst as usize))
-    }
-
-    /// Set the encoder timebase
-    pub unsafe fn with_timebase(self, timebase: AVRational) -> Self {
-        (*self.ctx).time_base = timebase;
-        self
     }
 
     /// Set the encoder bitrate
@@ -94,9 +107,11 @@ impl Encoder {
         self
     }
 
-    /// Set the encoder profile (see AV_PROFILE_*)
-    pub unsafe fn with_framerate(self, rate: AVRational) -> Self {
-        (*self.ctx).framerate = rate;
+    /// Set the encoder framerate
+    pub unsafe fn with_framerate(self, fps: f32) -> Self {
+        let q = av_d2q(fps as f64, 90_000);
+        (*self.ctx).framerate = q;
+        (*self.ctx).time_base = av_inv_q(q);
         self
     }
 
@@ -137,13 +152,15 @@ impl Encoder {
 
     /// Open the encoder so that you can start encoding frames (see [avcodec_open2])
     pub unsafe fn open(self, options: Option<HashMap<String, String>>) -> Result<Self, Error> {
+        assert!(!self.ctx.is_null());
+
         let mut options = if let Some(options) = options {
             options_to_dict(options)?
         } else {
             ptr::null_mut()
         };
         let ret = avcodec_open2(self.ctx, self.codec, &mut options);
-        return_ffmpeg_error!(ret);
+        bail_ffmpeg!(ret);
         Ok(self)
     }
 
@@ -169,6 +186,7 @@ impl Encoder {
                 }
                 bail!(get_ffmpeg_error_msg(ret));
             }
+            (*pkt).time_base = (*self.ctx).time_base;
             pkgs.push(pkt);
         }
 
@@ -187,8 +205,8 @@ mod tests {
         unsafe {
             let frame = generate_test_frame();
             let mut encoder = Encoder::new(AVCodecID::AV_CODEC_ID_PNG)?
-                .with_width(512)
-                .with_height(512);
+                .with_width((*frame).width)
+                .with_height((*frame).height);
 
             let pix_fmts: &[AVPixelFormat] =
                 encoder.list_configs(AVCodecConfig::AV_CODEC_CONFIG_PIX_FORMAT)?;

@@ -1,10 +1,10 @@
+use crate::bail_ffmpeg;
 use crate::get_ffmpeg_error_msg;
-use crate::return_ffmpeg_error;
 use anyhow::Error;
 use ffmpeg_sys_the_third::{
     av_channel_layout_default, av_frame_alloc, av_frame_copy_props, av_frame_free,
-    swr_alloc_set_opts2, swr_convert_frame, swr_init, AVChannelLayout, AVFrame, AVSampleFormat,
-    SwrContext,
+    swr_alloc_set_opts2, swr_convert_frame, swr_free, swr_init, AVChannelLayout, AVFrame,
+    AVSampleFormat, SwrContext,
 };
 use libc::malloc;
 use std::mem::transmute;
@@ -15,6 +15,16 @@ pub struct Resample {
     sample_rate: u32,
     channels: usize,
     ctx: *mut SwrContext,
+}
+
+impl Drop for Resample {
+    fn drop(&mut self) {
+        unsafe {
+            if !self.ctx.is_null() {
+                swr_free(&mut self.ctx);
+            }
+        }
+    }
 }
 
 impl Resample {
@@ -45,10 +55,10 @@ impl Resample {
             0,
             ptr::null_mut(),
         );
-        return_ffmpeg_error!(ret);
+        bail_ffmpeg!(ret);
 
         let ret = swr_init(self.ctx);
-        return_ffmpeg_error!(ret);
+        bail_ffmpeg!(ret);
 
         Ok(())
     }

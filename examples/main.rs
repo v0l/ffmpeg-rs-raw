@@ -9,7 +9,7 @@ use std::path::PathBuf;
 fn main() {
     env_logger::init();
     let name = args().next().unwrap_or("main".to_string());
-    let path = if let Some(path) = args().skip(1).next() {
+    let path = if let Some(path) = args().nth(1) {
         PathBuf::from(path)
     } else {
         error!("Usage: {} <path>", name);

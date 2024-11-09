@@ -11,20 +11,22 @@ mod decode;
 mod demux;
 mod encode;
 mod filter;
+mod muxer;
 mod resample;
 mod scale;
 mod stream_info;
+mod transcode;
 
 #[macro_export]
-macro_rules! return_ffmpeg_error {
+macro_rules! bail_ffmpeg {
     ($x:expr) => {
         if $x < 0 {
-            anyhow::bail!(crate::get_ffmpeg_error_msg($x))
+            anyhow::bail!($crate::get_ffmpeg_error_msg($x))
         }
     };
     ($x:expr,$msg:expr) => {
         if $x < 0 {
-            anyhow::bail!(format!("{}: {}", $msg, crate::get_ffmpeg_error_msg($x)))
+            anyhow::bail!(format!("{}: {}", $msg, $crate::get_ffmpeg_error_msg($x)))
         }
     };
 }
@@ -60,7 +62,7 @@ unsafe fn options_to_dict(options: HashMap<String, String>) -> Result<*mut AVDic
     let mut dict = ptr::null_mut();
     for (key, value) in options {
         let ret = av_dict_set(&mut dict, cstr!(key), cstr!(value), 0);
-        return_ffmpeg_error!(ret);
+        bail_ffmpeg!(ret);
     }
     Ok(dict)
 }
@@ -109,7 +111,7 @@ fn set_opts(ctx: *mut libc::c_void, options: HashMap<String, String>) -> Result<
     unsafe {
         for (key, value) in options {
             let ret = av_opt_set(ctx, cstr!(key), cstr!(value), AV_OPT_SEARCH_CHILDREN);
-            return_ffmpeg_error!(ret);
+            bail_ffmpeg!(ret);
         }
     }
     Ok(())
@@ -122,7 +124,7 @@ pub unsafe fn get_frame_from_hw(mut frame: *mut AVFrame) -> Result<*mut AVFrame,
     } else {
         let new_frame = av_frame_alloc();
         let ret = av_hwframe_transfer_data(new_frame, frame, 0);
-        return_ffmpeg_error!(ret);
+        bail_ffmpeg!(ret);
         av_frame_copy_props(new_frame, frame);
         av_frame_free(&mut frame);
         Ok(new_frame)
@@ -135,8 +137,8 @@ pub unsafe fn generate_test_frame() -> *mut AVFrame {
     use std::mem::transmute;
 
     let frame = av_frame_alloc();
-    (*frame).width = 512;
-    (*frame).height = 512;
+    (*frame).width = 1024;
+    (*frame).height = 1024;
     (*frame).format = transmute(AVPixelFormat::AV_PIX_FMT_RGB24);
     av_frame_get_buffer(frame, 0);
 
@@ -161,8 +163,11 @@ pub unsafe fn generate_test_frame() -> *mut AVFrame {
 
 pub use decode::*;
 pub use demux::*;
+pub use encode::*;
 pub use ffmpeg_sys_the_third;
 pub use filter::*;
+pub use muxer::*;
 pub use resample::*;
 pub use scale::*;
 pub use stream_info::*;
+pub use transcode::*;

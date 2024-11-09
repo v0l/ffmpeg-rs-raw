@@ -1,7 +1,7 @@
 use std::mem::transmute;
 use std::ptr;
 
-use crate::{return_ffmpeg_error, rstr};
+use crate::{bail_ffmpeg, rstr};
 use anyhow::{bail, Error};
 use ffmpeg_sys_the_third::{
     av_frame_alloc, av_frame_copy_props, av_get_pix_fmt_name, sws_freeContext, sws_getContext,
@@ -16,13 +16,12 @@ pub struct Scaler {
     ctx: *mut SwsContext,
 }
 
-unsafe impl Send for Scaler {}
-
 impl Drop for Scaler {
     fn drop(&mut self) {
         unsafe {
-            sws_freeContext(self.ctx);
-            self.ctx = ptr::null_mut();
+            if !self.ctx.is_null() {
+                sws_freeContext(self.ctx);
+            }
         }
     }
 }
@@ -111,10 +110,10 @@ impl Scaler {
 
         let dst_frame = av_frame_alloc();
         let ret = av_frame_copy_props(dst_frame, frame);
-        return_ffmpeg_error!(ret);
+        bail_ffmpeg!(ret);
 
         let ret = sws_scale_frame(self.ctx, dst_frame, frame);
-        return_ffmpeg_error!(ret);
+        bail_ffmpeg!(ret);
 
         Ok(dst_frame)
     }

@@ -1,4 +1,4 @@
-use crate::{cstr, return_ffmpeg_error};
+use crate::{bail_ffmpeg, cstr};
 use crate::{get_ffmpeg_error_msg, DemuxerInfo, StreamChannelType, StreamInfoChannel};
 use anyhow::Error;
 use ffmpeg_sys_the_third::*;
@@ -102,7 +102,7 @@ impl Demuxer {
 
     pub unsafe fn probe_input(&mut self) -> Result<DemuxerInfo, Error> {
         let ret = self.open_input();
-        return_ffmpeg_error!(ret);
+        bail_ffmpeg!(ret);
 
         if avformat_find_stream_info(self.ctx, ptr::null_mut()) < 0 {
             return Err(Error::msg("Could not find stream info"));

@@ -1,4 +1,7 @@
 /target
 /.idea
 
-test.png
+# Test output
+*.mp4
+*.png
+*.mkv

@@ -1,4 +1,4 @@
-use crate::{options_to_dict, return_ffmpeg_error, rstr, StreamInfoChannel};
+use crate::{bail_ffmpeg, options_to_dict, rstr, StreamInfoChannel};
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
@@ -35,9 +35,9 @@ impl DecoderCodecContext {
 
     /// Get the codec name
     pub fn codec_name(&self) -> String {
-        let codec_name = unsafe { rstr!((*(*self).codec).name) };
+        let codec_name = unsafe { rstr!((*self.codec).name) };
         if self.hw_config.is_null() {
-            format!("{}", codec_name)
+            codec_name.to_string()
         } else {
             let hw = unsafe { rstr!(av_hwdevice_get_type_name((*self.hw_config).device_type)) };
             format!("{}_{}", codec_name, hw)
@@ -48,9 +48,9 @@ impl DecoderCodecContext {
 impl Drop for DecoderCodecContext {
     fn drop(&mut self) {
         unsafe {
-            avcodec_free_context(&mut self.context);
-            self.codec = ptr::null_mut();
-            self.context = ptr::null_mut();
+            if !self.context.is_null() {
+                avcodec_free_context(&mut self.context);
+            }
         }
     }
 }
@@ -66,13 +66,17 @@ impl Display for DecoderCodecContext {
     }
 }
 
-unsafe impl Send for DecoderCodecContext {}
-
 pub struct Decoder {
     /// Decoder instances by stream index
     codecs: HashMap<i32, DecoderCodecContext>,
     /// List of [AVHWDeviceType] which are enabled
     hw_decoder_types: Option<HashSet<AVHWDeviceType>>,
+}
+
+impl Default for Decoder {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Decoder {
@@ -177,7 +181,7 @@ impl Decoder {
             }
 
             let mut ret = avcodec_parameters_to_context(context, (*stream).codecpar);
-            return_ffmpeg_error!(ret, "Failed to copy codec parameters to context");
+            bail_ffmpeg!(ret, "Failed to copy codec parameters to context");
 
             let codec_name = rstr!(avcodec_get_name((*codec).id));
             // try use HW decoder
@@ -205,7 +209,7 @@ impl Decoder {
                             ptr::null_mut(),
                             0,
                         );
-                        return_ffmpeg_error!(ret, "Failed to create HW ctx");
+                        bail_ffmpeg!(ret, "Failed to create HW ctx");
                         (*context).hw_device_ctx = av_buffer_ref(hw_buf_ref);
                         break;
                     }
@@ -218,7 +222,7 @@ impl Decoder {
             };
 
             ret = avcodec_open2(context, codec, &mut dict);
-            return_ffmpeg_error!(ret, "Failed to open codec");
+            bail_ffmpeg!(ret, "Failed to open codec");
 
             let ctx = DecoderCodecContext {
                 context,
@@ -252,7 +256,7 @@ impl Decoder {
         stream: *mut AVStream,
     ) -> Result<Vec<(*mut AVFrame, *mut AVStream)>, Error> {
         let mut ret = avcodec_send_packet(ctx, pkt);
-        return_ffmpeg_error!(ret, "Failed to decode packet");
+        bail_ffmpeg!(ret, "Failed to decode packet");
 
         let mut pkgs = Vec::new();
         while ret >= 0 {

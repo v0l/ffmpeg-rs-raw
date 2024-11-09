@@ -1,4 +1,4 @@
-use crate::{cstr, return_ffmpeg_error, rstr, set_opts};
+use crate::{bail_ffmpeg, cstr, rstr, set_opts};
 use anyhow::Error;
 use ffmpeg_sys_the_third::{
     av_strdup, avfilter_get_by_name, avfilter_graph_alloc, avfilter_graph_alloc_filter,
@@ -11,6 +11,12 @@ use std::ptr;
 
 pub struct Filter {
     graph: *mut AVFilterGraph,
+}
+
+impl Default for Filter {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Filter {
@@ -39,7 +45,7 @@ impl Filter {
             ptr::null_mut(),
             ctx,
         );
-        return_ffmpeg_error!(ret, "Failed to parse graph");
+        bail_ffmpeg!(ret, "Failed to parse graph");
 
         let ret = avfilter_graph_create_filter(
             &mut dst_ctx,
@@ -49,7 +55,7 @@ impl Filter {
             ptr::null_mut(),
             ctx,
         );
-        return_ffmpeg_error!(ret, "Failed to parse graph");
+        bail_ffmpeg!(ret, "Failed to parse graph");
 
         (*outputs).name = av_strdup((*dst).name);
         (*outputs).filter_ctx = dst_ctx;
@@ -62,7 +68,7 @@ impl Filter {
         (*inputs).next = ptr::null_mut();
 
         let ret = avfilter_graph_parse(ctx, cstr!(graph), inputs, outputs, ptr::null_mut());
-        return_ffmpeg_error!(ret, "Failed to parse graph");
+        bail_ffmpeg!(ret, "Failed to parse graph");
         let mut ret = Self { graph: ctx };
         ret.build()?;
         Ok(ret)
@@ -97,7 +103,7 @@ impl Filter {
         debug!("{}", d);
 
         let ret = avfilter_graph_config(self.graph, ptr::null_mut());
-        return_ffmpeg_error!(ret, "Failed to build filter");
+        bail_ffmpeg!(ret, "Failed to build filter");
         Ok(())
     }
 
