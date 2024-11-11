@@ -239,11 +239,10 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore] // WIP
     fn test_stream_groups() -> Result<()> {
         unsafe {
             let mut demux =
-                Demuxer::new("https://trac.ffmpeg.org/raw-attachment/ticket/11170/IMG_4765.HEIC")?;
+                Demuxer::new("/core/Camera/Syncthing/Camera S22/Camera/20241104_121607.heic")?;
             let probe = demux.probe_input()?;
             assert_eq!(1, probe.streams.len());
             assert_eq!(1, probe.groups.len());

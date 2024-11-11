@@ -118,6 +118,8 @@ pub struct StreamInfo {
     pub(crate) stream: *mut AVStream,
 }
 
+unsafe impl Send for StreamInfo {}
+
 impl StreamInfo {
     pub fn best_metric(&self) -> f32 {
         match self.stream_type {
@@ -184,3 +186,5 @@ pub struct StreamGroupInfo {
     // private pointer
     pub(crate) group: *mut AVStreamGroup,
 }
+
+unsafe impl Send for StreamGroupInfo {}
