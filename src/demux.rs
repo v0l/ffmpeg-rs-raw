@@ -1,6 +1,6 @@
 use crate::{bail_ffmpeg, cstr};
-use crate::{get_ffmpeg_error_msg, DemuxerInfo, StreamChannelType, StreamInfoChannel};
-use anyhow::Error;
+use crate::{DemuxerInfo, StreamChannelType, StreamInfoChannel};
+use anyhow::{bail, Error, Result};
 use ffmpeg_sys_the_third::*;
 use slimbox::{slimbox_unsize, SlimBox, SlimMut};
 use std::collections::HashMap;
@@ -36,26 +36,32 @@ pub struct Demuxer {
 
 impl Demuxer {
     /// Create a new [Demuxer] from a file path or url
-    pub fn new(input: &str) -> Self {
+    pub fn new(input: &str) -> Result<Self> {
         unsafe {
             let ctx = avformat_alloc_context();
-            Self {
+            if ctx.is_null() {
+                bail!("Failed to allocate AV context");
+            }
+            Ok(Self {
                 ctx,
                 input: DemuxerInput::Url(input.to_string()),
-            }
+            })
         }
     }
 
     /// Create a new [Demuxer] from an object that implements [Read]
-    pub fn new_custom_io<R: Read + 'static>(reader: R, url: Option<String>) -> Self {
+    pub fn new_custom_io<R: Read + 'static>(reader: R, url: Option<String>) -> Result<Self> {
         unsafe {
             let ctx = avformat_alloc_context();
+            if ctx.is_null() {
+                bail!("Failed to allocate AV context");
+            }
             (*ctx).flags |= AVFMT_FLAG_CUSTOM_IO;
 
-            Self {
+            Ok(Self {
                 ctx,
                 input: DemuxerInput::Reader(Some(slimbox_unsize!(reader)), url),
-            }
+            })
         }
     }
 
@@ -172,11 +178,10 @@ impl Demuxer {
         if ret == AVERROR_EOF {
             return Ok((ptr::null_mut(), ptr::null_mut()));
         }
-        if ret < 0 {
-            let msg = get_ffmpeg_error_msg(ret);
-            return Err(Error::msg(msg));
-        }
+        bail_ffmpeg!(ret);
+
         let stream = *(*self.ctx).streams.add((*pkt).stream_index as usize);
+        (*pkt).time_base = (*stream).time_base;
         let pkg = (pkt, stream);
         Ok(pkg)
     }

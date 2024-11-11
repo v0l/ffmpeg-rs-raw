@@ -2,9 +2,10 @@ use crate::{bail_ffmpeg, cstr, set_opts, Encoder};
 use anyhow::{bail, Result};
 use ffmpeg_sys_the_third::{
     av_dump_format, av_interleaved_write_frame, av_packet_rescale_ts, av_write_trailer,
-    avcodec_parameters_from_context, avformat_alloc_output_context2, avformat_free_context,
-    avformat_new_stream, avformat_write_header, avio_flush, avio_open, AVFormatContext, AVPacket,
-    AVFMT_GLOBALHEADER, AVFMT_NOFILE, AVIO_FLAG_WRITE, AV_CODEC_FLAG_GLOBAL_HEADER,
+    avcodec_parameters_copy, avcodec_parameters_from_context, avformat_alloc_output_context2,
+    avformat_free_context, avformat_new_stream, avformat_write_header, avio_flush, avio_open,
+    AVFormatContext, AVPacket, AVStream, AVFMT_GLOBALHEADER, AVFMT_NOFILE, AVIO_FLAG_WRITE,
+    AV_CODEC_FLAG_GLOBAL_HEADER,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -75,7 +76,13 @@ impl Muxer {
     }
 
     /// Add a stream to the output using an existing encoder
-    pub unsafe fn with_stream_encoder(self, encoder: &Encoder) -> Result<Self> {
+    pub unsafe fn with_stream_encoder(mut self, encoder: &Encoder) -> Result<Self> {
+        self.add_stream_encoder(encoder)?;
+        Ok(self)
+    }
+
+    /// Add a stream to the output using an existing encoder
+    pub unsafe fn add_stream_encoder(&mut self, encoder: &Encoder) -> Result<*mut AVStream> {
         let stream = avformat_new_stream(self.ctx, encoder.codec());
         if stream.is_null() {
             bail!("unable to allocate stream");
@@ -89,11 +96,25 @@ impl Muxer {
         (*stream).avg_frame_rate = (*encoder_ctx).framerate;
         (*stream).r_frame_rate = (*encoder_ctx).framerate;
 
-        Ok(self)
+        Ok(stream)
+    }
+
+    /// Add a stream to the output using an existing input stream (copy)
+    pub unsafe fn add_copy_stream(&mut self, in_stream: *mut AVStream) -> Result<*mut AVStream> {
+        let stream = avformat_new_stream(self.ctx, ptr::null_mut());
+        if stream.is_null() {
+            bail!("unable to allocate stream");
+        }
+
+        // copy params from input
+        let ret = avcodec_parameters_copy((*stream).codecpar, (*in_stream).codecpar);
+        bail_ffmpeg!(ret);
+
+        Ok(stream)
     }
 
     /// Open the output to start sending packets
-    pub unsafe fn open(self) -> Result<Self> {
+    pub unsafe fn open(&mut self) -> Result<()> {
         if (*(*self.ctx).oformat).flags & AVFMT_NOFILE == 0 {
             let ret = avio_open(&mut (*self.ctx).pb, (*self.ctx).url, AVIO_FLAG_WRITE);
             bail_ffmpeg!(ret);
@@ -104,16 +125,14 @@ impl Muxer {
 
         av_dump_format(self.ctx, 0, (*self.ctx).url, 1);
 
-        Ok(self)
+        Ok(())
     }
 
     /// Write a packet to the output
     pub unsafe fn write_packet(&mut self, pkt: *mut AVPacket) -> Result<()> {
-        assert!((*pkt).stream_index >= 0 && (*pkt).stream_index < (*self.ctx).nb_streams as i32);
-        assert!((*pkt).time_base.num != 0 && (*pkt).time_base.den != 0);
-
         let stream = *(*self.ctx).streams.add((*pkt).stream_index as usize);
         av_packet_rescale_ts(pkt, (*pkt).time_base, (*stream).time_base);
+        (*pkt).time_base = (*stream).time_base;
 
         let ret = av_interleaved_write_frame(self.ctx, pkt);
         bail_ffmpeg!(ret);
@@ -138,8 +157,9 @@ mod tests {
 
     #[test]
     fn encode_mkv() -> Result<()> {
+        std::fs::create_dir_all("test_output")?;
         unsafe {
-            let path = PathBuf::from("test.mp4");
+            let path = PathBuf::from("test_output/test.mp4");
             let frame = generate_test_frame();
 
             // convert frame to YUV
@@ -163,9 +183,8 @@ mod tests {
 
             let mut muxer = Muxer::new()
                 .with_output(&path, None, None)?
-                .with_stream_encoder(&encoder)?
-                .open()?;
-
+                .with_stream_encoder(&encoder)?;
+            muxer.open()?;
             let mut pts = 0;
             for z in 0..100 {
                 (*frame).pts = pts;

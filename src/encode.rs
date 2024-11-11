@@ -15,6 +15,7 @@ use libc::EAGAIN;
 pub struct Encoder {
     ctx: *mut AVCodecContext,
     codec: *const AVCodec,
+    dst_stream_index: Option<i32>,
 }
 
 impl Drop for Encoder {
@@ -41,7 +42,11 @@ impl Encoder {
             }
             // set some defaults
             (*ctx).time_base = AVRational { num: 1, den: 1 };
-            Ok(Self { ctx, codec })
+            Ok(Self {
+                ctx,
+                codec,
+                dst_stream_index: None,
+            })
         }
     }
 
@@ -69,6 +74,13 @@ impl Encoder {
         );
         bail_ffmpeg!(ret);
         Ok(slice::from_raw_parts(dst, num_dst as usize))
+    }
+
+    /// Store the destination stream index along with the encoder
+    /// AVPacket's created by this encoder will have stream_index assigned to this value
+    pub unsafe fn with_stream_index(mut self, index: i32) -> Self {
+        self.dst_stream_index = Some(index);
+        self
     }
 
     /// Set the encoder bitrate
@@ -187,6 +199,9 @@ impl Encoder {
                 bail!(get_ffmpeg_error_msg(ret));
             }
             (*pkt).time_base = (*self.ctx).time_base;
+            if let Some(idx) = self.dst_stream_index {
+                (*pkt).stream_index = idx;
+            }
             pkgs.push(pkt);
         }
 
@@ -212,7 +227,8 @@ mod tests {
                 encoder.list_configs(AVCodecConfig::AV_CODEC_CONFIG_PIX_FORMAT)?;
             encoder = encoder.with_pix_fmt(pix_fmts[0]).open(None)?;
 
-            let mut test_file = std::fs::File::create("test.png")?;
+            std::fs::create_dir_all("test_output")?;
+            let mut test_file = std::fs::File::create("test_output/test.png")?;
             let mut pkts = encoder.encode_frame(frame)?;
             let flush_pkts = encoder.encode_frame(ptr::null_mut())?;
             pkts.extend(flush_pkts);

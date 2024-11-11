@@ -24,11 +24,11 @@ fn read_as_custom_io(path: PathBuf) -> Demuxer {
     let mut data: Vec<u8> = Vec::new();
     File::open(path).unwrap().read_to_end(&mut data).unwrap();
     let reader = Cursor::new(data);
-    Demuxer::new_custom_io(reader, None)
+    Demuxer::new_custom_io(reader, None).unwrap()
 }
 
 fn read_as_file(path_buf: PathBuf) -> Demuxer {
-    Demuxer::new(path_buf.to_str().unwrap())
+    Demuxer::new(path_buf.to_str().unwrap()).unwrap()
 }
 
 fn scan_input(mut demuxer: Demuxer) {
@@ -67,7 +67,7 @@ unsafe fn loop_decoder(mut demuxer: Demuxer, mut decoder: Decoder) {
             continue;
         }
         if let Ok(frames) = decoder.decode_pkt(pkt, stream) {
-            for (mut frame, _stream) in frames {
+            for mut frame in frames {
                 // do nothing but decode entire stream
                 if media_type == AVMediaType::AVMEDIA_TYPE_VIDEO {
                     frame = get_frame_from_hw(frame).expect("get frame failed");

@@ -238,7 +238,7 @@ impl Decoder {
     }
 
     /// Flush all decoders
-    pub unsafe fn flush(&mut self) -> Result<Vec<(*mut AVFrame, *mut AVStream)>, Error> {
+    pub unsafe fn flush(&mut self) -> Result<Vec<*mut AVFrame>, Error> {
         let mut pkgs = Vec::new();
         for ctx in self.codecs.values_mut() {
             pkgs.extend(Self::decode_pkt_internal(
@@ -254,7 +254,7 @@ impl Decoder {
         ctx: *mut AVCodecContext,
         pkt: *mut AVPacket,
         stream: *mut AVStream,
-    ) -> Result<Vec<(*mut AVFrame, *mut AVStream)>, Error> {
+    ) -> Result<Vec<*mut AVFrame>, Error> {
         let mut ret = avcodec_send_packet(ctx, pkt);
         bail_ffmpeg!(ret, "Failed to decode packet");
 
@@ -270,7 +270,7 @@ impl Decoder {
             }
 
             (*frame).pict_type = AV_PICTURE_TYPE_NONE; // encoder prints warnings
-            pkgs.push((frame, stream));
+            pkgs.push(frame);
         }
         Ok(pkgs)
     }
@@ -279,7 +279,7 @@ impl Decoder {
         &mut self,
         pkt: *mut AVPacket,
         stream: *mut AVStream,
-    ) -> Result<Vec<(*mut AVFrame, *mut AVStream)>, Error> {
+    ) -> Result<Vec<*mut AVFrame>, Error> {
         if pkt.is_null() {
             return self.flush();
         }
