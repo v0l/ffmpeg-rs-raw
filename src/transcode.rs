@@ -75,7 +75,7 @@ impl Transcoder {
         if pkt.is_null() {
             for (_, enc) in &mut self.encoders {
                 for mut new_pkt in enc.encode_frame(ptr::null_mut())? {
-                    self.muxer.write_packet(pkt)?;
+                    self.muxer.write_packet(new_pkt)?;
                     av_packet_free(&mut new_pkt);
                 }
             }
