@@ -19,7 +19,6 @@ impl Drop for Muxer {
     fn drop(&mut self) {
         unsafe {
             if !self.ctx.is_null() {
-                avio_flush((*self.ctx).pb);
                 avformat_free_context(self.ctx);
             }
         }
