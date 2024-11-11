@@ -10,7 +10,7 @@ use std::ptr;
 pub struct Transcoder {
     demuxer: Demuxer,
     decoder: Decoder,
-    scaler: Scaler,
+    scalers: HashMap<i32, Scaler>,
     encoders: HashMap<i32, Encoder>,
     copy_stream: HashMap<i32, i32>,
     muxer: Muxer,
@@ -23,7 +23,7 @@ impl Transcoder {
         Ok(Self {
             demuxer: Demuxer::new(input)?,
             decoder: Decoder::new(),
-            scaler: Scaler::new(),
+            scalers: HashMap::new(),
             encoders: HashMap::new(),
             copy_stream: HashMap::new(),
             muxer,
@@ -42,9 +42,17 @@ impl Transcoder {
         in_stream: &StreamInfoChannel,
         encoder_out: Encoder,
     ) -> Result<()> {
+        let src_index = in_stream.index as i32;
         let dst_stream = self.muxer.add_stream_encoder(&encoder_out)?;
+        let out_ctx = encoder_out.codec_context();
+        if in_stream.width != (*out_ctx).width as usize
+            || in_stream.height != (*out_ctx).height as usize
+            || in_stream.format != (*out_ctx).pix_fmt as usize {
+            // Setup scaler if the size/format is different from what the codec expects
+            self.scalers.insert(src_index, Scaler::new());
+        }
         self.encoders.insert(
-            in_stream.index as i32,
+            src_index,
             encoder_out.with_stream_index((*dst_stream).index),
         );
         self.decoder.setup_decoder(in_stream, None)?;
@@ -77,6 +85,18 @@ impl Transcoder {
             // check if encoded stream
             if let Some(enc) = self.encoders.get_mut(&src_index) {
                 for mut frame in self.decoder.decode_pkt(pkt, stream)? {
+
+                    // scale frame before sending to encoder
+                    let mut frame = if let Some(mut sws) = self.scalers.get_mut(&src_index) {
+                        let enc_ctx = enc.codec_context();
+                        let new_frame = sws.process_frame(frame, (*enc_ctx).width as u16, (*enc_ctx).height as u16, (*enc_ctx).pix_fmt)?;
+                        av_frame_free(&mut frame);
+                        new_frame
+                    } else {
+                        frame
+                    };
+
+                    // encode frame and send packets to muxer
                     for mut new_pkt in enc.encode_frame(frame)? {
                         self.muxer.write_packet(new_pkt)?;
                         av_packet_free(&mut new_pkt);
