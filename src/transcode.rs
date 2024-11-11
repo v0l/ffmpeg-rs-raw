@@ -39,7 +39,7 @@ impl Transcoder {
     /// a pre-configured output encoder
     pub unsafe fn transcode_stream(
         &mut self,
-        in_stream: StreamInfoChannel,
+        in_stream: &StreamInfoChannel,
         encoder_out: Encoder,
     ) -> Result<()> {
         let dst_stream = self.muxer.add_stream_encoder(&encoder_out)?;
@@ -47,6 +47,7 @@ impl Transcoder {
             in_stream.index as i32,
             encoder_out.with_stream_index((*dst_stream).index),
         );
+        self.decoder.setup_decoder(in_stream, None)?;
         Ok(())
     }
 
