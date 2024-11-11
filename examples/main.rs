@@ -43,7 +43,7 @@ unsafe fn decode_input(demuxer: Demuxer, info: DemuxerInfo) {
     let mut decoder = Decoder::new();
     decoder.enable_hw_decoder_any();
 
-    for ref stream in info.channels {
+    for ref stream in info.streams {
         decoder
             .setup_decoder(stream, None)
             .expect("decoder setup failed");
@@ -66,7 +66,7 @@ unsafe fn loop_decoder(mut demuxer: Demuxer, mut decoder: Decoder) {
             av_packet_free(&mut pkt);
             continue;
         }
-        if let Ok(frames) = decoder.decode_pkt(pkt, stream) {
+        if let Ok(frames) = decoder.decode_pkt(pkt) {
             for mut frame in frames {
                 // do nothing but decode entire stream
                 if media_type == AVMediaType::AVMEDIA_TYPE_VIDEO {

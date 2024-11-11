@@ -1,7 +1,9 @@
-use crate::{bail_ffmpeg, cstr};
-use crate::{DemuxerInfo, StreamChannelType, StreamInfoChannel};
+use crate::{bail_ffmpeg, cstr, rstr, StreamGroupInfo, StreamGroupType};
+use crate::{DemuxerInfo, StreamInfo, StreamType};
 use anyhow::{bail, Error, Result};
+use ffmpeg_sys_the_third::AVStreamGroupParamsType::AV_STREAM_GROUP_PARAMS_TILE_GRID;
 use ffmpeg_sys_the_third::*;
+use log::warn;
 use slimbox::{slimbox_unsize, SlimBox, SlimMut};
 use std::collections::HashMap;
 use std::io::Read;
@@ -114,43 +116,73 @@ impl Demuxer {
             return Err(Error::msg("Could not find stream info"));
         }
 
-        let mut channel_infos = vec![];
+        let mut streams = vec![];
+        let mut stream_groups = vec![];
 
-        for n in 0..(*self.ctx).nb_streams as usize {
-            let stream = *(*self.ctx).streams.add(n);
+        let mut n_stream = 0;
+        for n in 0..(*self.ctx).nb_stream_groups as usize {
+            let group = *(*self.ctx).stream_groups.add(n);
+            n_stream += (*group).nb_streams as usize;
+            match (*group).type_ {
+                AV_STREAM_GROUP_PARAMS_TILE_GRID => {
+                    let tg = (*group).params.tile_grid;
+                    let codec_par = (*(*(*group).streams.add(0))).codecpar;
+                    stream_groups.push(StreamGroupInfo {
+                        index: (*group).index as usize,
+                        group_type: StreamGroupType::TileGrid {
+                            tiles: (*tg).nb_tiles as usize,
+                            width: (*tg).width as usize,
+                            height: (*tg).height as usize,
+                            format: (*codec_par).format as isize,
+                            codec: (*codec_par).codec_id as isize,
+                        },
+                        group,
+                    });
+                }
+                t => {
+                    warn!(
+                        "Unsupported stream group type {}, skipping.",
+                        rstr!(avformat_stream_group_name(t))
+                    );
+                }
+            }
+        }
+        while n_stream < (*self.ctx).nb_streams as usize {
+            let stream = *(*self.ctx).streams.add(n_stream);
+            n_stream += 1;
             match (*(*stream).codecpar).codec_type {
                 AVMediaType::AVMEDIA_TYPE_VIDEO => {
-                    channel_infos.push(StreamInfoChannel {
+                    streams.push(StreamInfo {
                         stream,
                         index: (*stream).index as usize,
-                        codec: (*(*stream).codecpar).codec_id as usize,
-                        channel_type: StreamChannelType::Video,
+                        codec: (*(*stream).codecpar).codec_id as isize,
+                        stream_type: StreamType::Video,
                         width: (*(*stream).codecpar).width as usize,
                         height: (*(*stream).codecpar).height as usize,
                         fps: av_q2d((*stream).avg_frame_rate) as f32,
-                        format: (*(*stream).codecpar).format as usize,
+                        format: (*(*stream).codecpar).format as isize,
                         sample_rate: 0,
                     });
                 }
                 AVMediaType::AVMEDIA_TYPE_AUDIO => {
-                    channel_infos.push(StreamInfoChannel {
+                    streams.push(StreamInfo {
                         stream,
                         index: (*stream).index as usize,
-                        codec: (*(*stream).codecpar).codec_id as usize,
-                        channel_type: StreamChannelType::Audio,
+                        codec: (*(*stream).codecpar).codec_id as isize,
+                        stream_type: StreamType::Audio,
                         width: (*(*stream).codecpar).width as usize,
                         height: (*(*stream).codecpar).height as usize,
                         fps: 0.0,
-                        format: (*(*stream).codecpar).format as usize,
+                        format: (*(*stream).codecpar).format as isize,
                         sample_rate: (*(*stream).codecpar).sample_rate as usize,
                     });
                 }
                 AVMediaType::AVMEDIA_TYPE_SUBTITLE => {
-                    channel_infos.push(StreamInfoChannel {
+                    streams.push(StreamInfo {
                         stream,
                         index: (*stream).index as usize,
-                        codec: (*(*stream).codecpar).codec_id as usize,
-                        channel_type: StreamChannelType::Subtitle,
+                        codec: (*(*stream).codecpar).codec_id as isize,
+                        stream_type: StreamType::Subtitle,
                         width: 0,
                         height: 0,
                         fps: 0.0,
@@ -167,7 +199,8 @@ impl Demuxer {
         let info = DemuxerInfo {
             duration: (*self.ctx).duration as f32 / AV_TIME_BASE as f32,
             bitrate: (*self.ctx).bit_rate as usize,
-            channels: channel_infos,
+            streams,
+            groups: stream_groups,
         };
         Ok(info)
     }
@@ -198,5 +231,27 @@ impl Drop for Demuxer {
                 self.ctx = ptr::null_mut();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore] // WIP
+    fn test_stream_groups() -> Result<()> {
+        unsafe {
+            let mut demux =
+                Demuxer::new("https://trac.ffmpeg.org/raw-attachment/ticket/11170/IMG_4765.HEIC")?;
+            let probe = demux.probe_input()?;
+            assert_eq!(1, probe.streams.len());
+            assert_eq!(1, probe.groups.len());
+            assert!(matches!(
+                probe.groups[0].group_type,
+                StreamGroupType::TileGrid { .. }
+            ));
+        }
+        Ok(())
     }
 }

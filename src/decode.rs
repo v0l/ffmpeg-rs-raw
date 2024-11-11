@@ -1,4 +1,4 @@
-use crate::{bail_ffmpeg, options_to_dict, rstr, StreamInfoChannel};
+use crate::{bail_ffmpeg, options_to_dict, rstr, StreamInfo};
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
@@ -117,7 +117,7 @@ impl Decoder {
     /// Set up a decoder for a given channel
     pub fn setup_decoder(
         &mut self,
-        channel: &StreamInfoChannel,
+        channel: &StreamInfo,
         options: Option<HashMap<String, String>>,
     ) -> Result<&mut DecoderCodecContext, Error> {
         unsafe { self.setup_decoder_for_stream(channel.stream, options) }
@@ -241,11 +241,7 @@ impl Decoder {
     pub unsafe fn flush(&mut self) -> Result<Vec<*mut AVFrame>, Error> {
         let mut pkgs = Vec::new();
         for ctx in self.codecs.values_mut() {
-            pkgs.extend(Self::decode_pkt_internal(
-                ctx.context,
-                ptr::null_mut(),
-                ctx.stream,
-            )?);
+            pkgs.extend(Self::decode_pkt_internal(ctx.context, ptr::null_mut())?);
         }
         Ok(pkgs)
     }
@@ -253,7 +249,6 @@ impl Decoder {
     pub unsafe fn decode_pkt_internal(
         ctx: *mut AVCodecContext,
         pkt: *mut AVPacket,
-        stream: *mut AVStream,
     ) -> Result<Vec<*mut AVFrame>, Error> {
         let mut ret = avcodec_send_packet(ctx, pkt);
         bail_ffmpeg!(ret, "Failed to decode packet");
@@ -275,23 +270,12 @@ impl Decoder {
         Ok(pkgs)
     }
 
-    pub unsafe fn decode_pkt(
-        &mut self,
-        pkt: *mut AVPacket,
-        stream: *mut AVStream,
-    ) -> Result<Vec<*mut AVFrame>, Error> {
+    pub unsafe fn decode_pkt(&mut self, pkt: *mut AVPacket) -> Result<Vec<*mut AVFrame>, Error> {
         if pkt.is_null() {
             return self.flush();
         }
-        let stream_index = (*pkt).stream_index;
-        assert_eq!(
-            stream_index,
-            (*stream).index,
-            "Passed stream reference does not match stream_index of packet"
-        );
-
-        if let Some(ctx) = self.codecs.get_mut(&stream_index) {
-            Self::decode_pkt_internal(ctx.context, pkt, stream)
+        if let Some(ctx) = self.codecs.get_mut(&(*pkt).stream_index) {
+            Self::decode_pkt_internal(ctx.context, pkt)
         } else {
             Ok(vec![])
         }

@@ -3,8 +3,8 @@ use anyhow::{bail, Result};
 use ffmpeg_sys_the_third::{
     av_dump_format, av_interleaved_write_frame, av_packet_rescale_ts, av_write_trailer,
     avcodec_parameters_copy, avcodec_parameters_from_context, avformat_alloc_output_context2,
-    avformat_free_context, avformat_new_stream, avformat_write_header, avio_flush, avio_open,
-    AVFormatContext, AVPacket, AVStream, AVFMT_GLOBALHEADER, AVFMT_NOFILE, AVIO_FLAG_WRITE,
+    avformat_free_context, avformat_new_stream, avformat_write_header, avio_open, AVFormatContext,
+    AVPacket, AVStream, AVFMT_GLOBALHEADER, AVFMT_NOFILE, AVIO_FLAG_WRITE,
     AV_CODEC_FLAG_GLOBAL_HEADER,
 };
 use std::collections::HashMap;
@@ -185,7 +185,7 @@ mod tests {
                 .with_stream_encoder(&encoder)?;
             muxer.open()?;
             let mut pts = 0;
-            for z in 0..100 {
+            for _z in 0..100 {
                 (*frame).pts = pts;
                 for pkt in encoder.encode_frame(frame)? {
                     muxer.write_packet(pkt)?;

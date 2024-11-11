@@ -1,6 +1,7 @@
 use crate::{format_time, rstr};
 use ffmpeg_sys_the_third::{
     av_get_pix_fmt_name, av_get_sample_fmt_name, avcodec_get_name, AVMediaType, AVStream,
+    AVStreamGroup,
 };
 use std::fmt::{Display, Formatter};
 use std::intrinsics::transmute;
@@ -9,14 +10,15 @@ use std::intrinsics::transmute;
 pub struct DemuxerInfo {
     pub bitrate: usize,
     pub duration: f32,
-    pub channels: Vec<StreamInfoChannel>,
+    pub streams: Vec<StreamInfo>,
+    pub groups: Vec<StreamGroupInfo>,
 }
 
 impl DemuxerInfo {
-    pub fn best_stream(&self, t: StreamChannelType) -> Option<&StreamInfoChannel> {
-        self.channels
+    pub fn best_stream(&self, t: StreamType) -> Option<&StreamInfo> {
+        self.streams
             .iter()
-            .filter(|a| a.channel_type == t)
+            .filter(|a| a.stream_type == t)
             .reduce(|acc, channel| {
                 if channel.best_metric() > acc.best_metric() {
                     channel
@@ -26,16 +28,16 @@ impl DemuxerInfo {
             })
     }
 
-    pub fn best_video(&self) -> Option<&StreamInfoChannel> {
-        self.best_stream(StreamChannelType::Video)
+    pub fn best_video(&self) -> Option<&StreamInfo> {
+        self.best_stream(StreamType::Video)
     }
 
-    pub fn best_audio(&self) -> Option<&StreamInfoChannel> {
-        self.best_stream(StreamChannelType::Audio)
+    pub fn best_audio(&self) -> Option<&StreamInfo> {
+        self.best_stream(StreamType::Audio)
     }
 
-    pub fn best_subtitle(&self) -> Option<&StreamInfoChannel> {
-        self.best_stream(StreamChannelType::Subtitle)
+    pub fn best_subtitle(&self) -> Option<&StreamInfo> {
+        self.best_stream(StreamType::Subtitle)
     }
 
     pub unsafe fn is_best_stream(&self, stream: *mut AVStream) -> bool {
@@ -71,7 +73,7 @@ impl Display for DemuxerInfo {
             format_time(self.duration),
             bitrate_str
         )?;
-        for c in &self.channels {
+        for c in &self.streams {
             write!(f, "\n  {}", c)?;
         }
         Ok(())
@@ -79,62 +81,61 @@ impl Display for DemuxerInfo {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum StreamChannelType {
+pub enum StreamType {
     Video,
     Audio,
     Subtitle,
 }
 
-impl Display for StreamChannelType {
+impl Display for StreamType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "{}",
             match self {
-                StreamChannelType::Video => "video",
-                StreamChannelType::Audio => "audio",
-                StreamChannelType::Subtitle => "subtitle",
+                StreamType::Video => "video",
+                StreamType::Audio => "audio",
+                StreamType::Subtitle => "subtitle",
             }
         )
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct StreamInfoChannel {
+pub struct StreamInfo {
     pub index: usize,
-    pub channel_type: StreamChannelType,
-    pub codec: usize,
+    pub stream_type: StreamType,
+    pub codec: isize,
+    pub format: isize,
+
     pub width: usize,
     pub height: usize,
+
     pub fps: f32,
     pub sample_rate: usize,
-    pub format: usize,
 
     // private stream pointer
     pub(crate) stream: *mut AVStream,
 }
 
-unsafe impl Send for StreamInfoChannel {}
-unsafe impl Sync for StreamInfoChannel {}
-
-impl StreamInfoChannel {
+impl StreamInfo {
     pub fn best_metric(&self) -> f32 {
-        match self.channel_type {
-            StreamChannelType::Video => self.width as f32 * self.height as f32 * self.fps,
-            StreamChannelType::Audio => self.sample_rate as f32,
-            StreamChannelType::Subtitle => 999. - self.index as f32,
+        match self.stream_type {
+            StreamType::Video => self.width as f32 * self.height as f32 * self.fps,
+            StreamType::Audio => self.sample_rate as f32,
+            StreamType::Subtitle => 999. - self.index as f32,
         }
     }
 }
 
-impl Display for StreamInfoChannel {
+impl Display for StreamInfo {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let codec_name = unsafe { rstr!(avcodec_get_name(transmute(self.codec as i32))) };
-        match self.channel_type {
-            StreamChannelType::Video => write!(
+        match self.stream_type {
+            StreamType::Video => write!(
                 f,
                 "{} #{}: codec={},size={}x{},fps={:.3},pix_fmt={}",
-                self.channel_type,
+                self.stream_type,
                 self.index,
                 codec_name,
                 self.width,
@@ -142,10 +143,10 @@ impl Display for StreamInfoChannel {
                 self.fps,
                 unsafe { rstr!(av_get_pix_fmt_name(transmute(self.format as libc::c_int))) },
             ),
-            StreamChannelType::Audio => write!(
+            StreamType::Audio => write!(
                 f,
                 "{} #{}: codec={},format={},sample_rate={}",
-                self.channel_type,
+                self.stream_type,
                 self.index,
                 codec_name,
                 unsafe {
@@ -155,11 +156,31 @@ impl Display for StreamInfoChannel {
                 },
                 self.sample_rate,
             ),
-            StreamChannelType::Subtitle => write!(
+            StreamType::Subtitle => write!(
                 f,
                 "{} #{}: codec={}",
-                self.channel_type, self.index, codec_name
+                self.stream_type, self.index, codec_name
             ),
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum StreamGroupType {
+    TileGrid {
+        tiles: usize,
+        width: usize,
+        height: usize,
+        codec: isize,
+        format: isize,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct StreamGroupInfo {
+    pub index: usize,
+    pub group_type: StreamGroupType,
+
+    // private pointer
+    pub(crate) group: *mut AVStreamGroup,
 }
