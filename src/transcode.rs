@@ -1,4 +1,6 @@
-use crate::{Decoder, Demuxer, DemuxerInfo, Encoder, Muxer, Scaler, StreamInfo};
+use crate::{
+    Decoder, Demuxer, DemuxerInfo, Encoder, Muxer, Resample, Scaler, StreamInfo, StreamType,
+};
 use anyhow::Result;
 use ffmpeg_sys_the_third::{av_frame_free, av_packet_free};
 use std::collections::HashMap;
@@ -11,6 +13,7 @@ pub struct Transcoder {
     demuxer: Demuxer,
     decoder: Decoder,
     scalers: HashMap<i32, Scaler>,
+    resampler: HashMap<i32, Resample>,
     encoders: HashMap<i32, Encoder>,
     copy_stream: HashMap<i32, i32>,
     muxer: Muxer,
@@ -24,6 +27,7 @@ impl Transcoder {
             demuxer: Demuxer::new(input)?,
             decoder: Decoder::new(),
             scalers: HashMap::new(),
+            resampler: HashMap::new(),
             encoders: HashMap::new(),
             copy_stream: HashMap::new(),
             muxer,
@@ -45,18 +49,38 @@ impl Transcoder {
         let src_index = in_stream.index as i32;
         let dst_stream = self.muxer.add_stream_encoder(&encoder_out)?;
         let out_ctx = encoder_out.codec_context();
-        if in_stream.width != (*out_ctx).width as usize
-            || in_stream.height != (*out_ctx).height as usize
-            || in_stream.format != (*out_ctx).pix_fmt as isize
+
+        // Setup scaler if the size/format is different from what the codec expects
+        if in_stream.stream_type == StreamType::Video
+            && (in_stream.width != (*out_ctx).width as usize
+                || in_stream.height != (*out_ctx).height as usize
+                || in_stream.format != (*out_ctx).pix_fmt as isize)
         {
-            // Setup scaler if the size/format is different from what the codec expects
             self.scalers.insert(src_index, Scaler::new());
         }
+
+        // Setup resampler for audio
+        if in_stream.stream_type == StreamType::Audio
+            && (in_stream.format != (*out_ctx).sample_fmt as isize
+                || in_stream.sample_rate != (*out_ctx).sample_rate as usize)
+        {
+            let r = Resample::new(
+                (*out_ctx).sample_fmt,
+                (*out_ctx).sample_rate as u32,
+                (*out_ctx).ch_layout.nb_channels as usize,
+            );
+            self.resampler.insert(src_index, r);
+        }
+
+        // insert encoder for this stream
         self.encoders.insert(
             src_index,
             encoder_out.with_stream_index((*dst_stream).index),
         );
+
+        // setup decoder for this input
         self.decoder.setup_decoder(in_stream, None)?;
+
         Ok(())
     }
 
@@ -86,7 +110,7 @@ impl Transcoder {
             // check if encoded stream
             if let Some(enc) = self.encoders.get_mut(&src_index) {
                 for mut frame in self.decoder.decode_pkt(pkt)? {
-                    // scale frame before sending to encoder
+                    // scale video frame before sending to encoder
                     let mut frame = if let Some(sws) = self.scalers.get_mut(&src_index) {
                         let enc_ctx = enc.codec_context();
                         let new_frame = sws.process_frame(
@@ -97,6 +121,13 @@ impl Transcoder {
                         )?;
                         av_frame_free(&mut frame);
                         new_frame
+                    } else {
+                        frame
+                    };
+
+                    // resample audio frame before encoding
+                    let mut frame = if let Some(swr) = self.resampler.get_mut(&src_index) {
+                        swr.process_frame(frame)?
                     } else {
                         frame
                     };
