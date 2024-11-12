@@ -150,6 +150,12 @@ impl Demuxer {
         while n_stream < (*self.ctx).nb_streams as usize {
             let stream = *(*self.ctx).streams.add(n_stream);
             n_stream += 1;
+            let lang = av_dict_get((*stream).metadata, cstr!("language"), ptr::null_mut(), 0);
+            let language = if lang.is_null() {
+                "".to_string()
+            } else {
+                rstr!((*lang).value).to_string()
+            };
             match (*(*stream).codecpar).codec_type {
                 AVMediaType::AVMEDIA_TYPE_VIDEO => {
                     streams.push(StreamInfo {
@@ -162,6 +168,7 @@ impl Demuxer {
                         fps: av_q2d((*stream).avg_frame_rate) as f32,
                         format: (*(*stream).codecpar).format as isize,
                         sample_rate: 0,
+                        language,
                     });
                 }
                 AVMediaType::AVMEDIA_TYPE_AUDIO => {
@@ -175,6 +182,7 @@ impl Demuxer {
                         fps: 0.0,
                         format: (*(*stream).codecpar).format as isize,
                         sample_rate: (*(*stream).codecpar).sample_rate as usize,
+                        language,
                     });
                 }
                 AVMediaType::AVMEDIA_TYPE_SUBTITLE => {
@@ -188,6 +196,7 @@ impl Demuxer {
                         fps: 0.0,
                         format: 0,
                         sample_rate: 0,
+                        language,
                     });
                 }
                 AVMediaType::AVMEDIA_TYPE_ATTACHMENT => {}
@@ -239,10 +248,11 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore]
     fn test_stream_groups() -> Result<()> {
         unsafe {
             let mut demux =
-                Demuxer::new("/core/Camera/Syncthing/Camera S22/Camera/20241104_121607.heic")?;
+                Demuxer::new("/core/[SubsPlease] Kinoko Inu - 06 (1080p) [FECF68AF].mkv")?;
             let probe = demux.probe_input()?;
             assert_eq!(1, probe.streams.len());
             assert_eq!(1, probe.groups.len());

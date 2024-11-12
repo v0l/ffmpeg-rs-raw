@@ -103,16 +103,26 @@ impl Display for StreamType {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct StreamInfo {
+    /// Stream index
     pub index: usize,
+    /// Stream type video/audio/subtitle
     pub stream_type: StreamType,
+    /// Stream codec
     pub codec: isize,
+    /// Pixel format / Sample format
     pub format: isize,
 
+    /// Video width
     pub width: usize,
+    /// Video height
     pub height: usize,
-
+    /// Video FPS
     pub fps: f32,
+
+    /// Audio sample rate
     pub sample_rate: usize,
+    /// Subtitle / Audio language
+    pub language: String,
 
     // private stream pointer
     pub(crate) stream: *mut AVStream,
@@ -147,7 +157,7 @@ impl Display for StreamInfo {
             ),
             StreamType::Audio => write!(
                 f,
-                "{} #{}: codec={},format={},sample_rate={}",
+                "{} #{}: codec={},format={},sample_rate={},lang={}",
                 self.stream_type,
                 self.index,
                 codec_name,
@@ -157,11 +167,12 @@ impl Display for StreamInfo {
                     )))
                 },
                 self.sample_rate,
+                self.language,
             ),
             StreamType::Subtitle => write!(
                 f,
-                "{} #{}: codec={}",
-                self.stream_type, self.index, codec_name
+                "{} #{}: codec={},lang={}",
+                self.stream_type, self.index, codec_name, self.language
             ),
         }
     }
