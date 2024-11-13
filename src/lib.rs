@@ -49,6 +49,8 @@ macro_rules! rstr {
     };
 }
 
+pub(crate) const AVIO_BUFFER_SIZE: usize = 4096;
+
 fn get_ffmpeg_error_msg(ret: libc::c_int) -> String {
     unsafe {
         const BUF_SIZE: usize = 512;
