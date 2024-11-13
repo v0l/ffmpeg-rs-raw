@@ -72,14 +72,18 @@ impl Demuxer {
         crate::set_opts(self.ctx as *mut libc::c_void, options)
     }
 
-    unsafe fn open_input(&mut self) -> libc::c_int {
+    unsafe fn open(&mut self) -> Result<()> {
         match &mut self.input {
-            DemuxerInput::Url(input) => avformat_open_input(
-                &mut self.ctx,
-                cstr!(input),
-                ptr::null_mut(),
-                ptr::null_mut(),
-            ),
+            DemuxerInput::Url(input) => {
+                let ret = avformat_open_input(
+                    &mut self.ctx,
+                    cstr!(input.as_str()),
+                    ptr::null_mut(),
+                    ptr::null_mut(),
+                );
+                bail_ffmpeg!(ret);
+                Ok(())
+            }
             DemuxerInput::Reader(input, url) => {
                 let input = input.take().expect("input stream already taken");
                 const BUFFER_SIZE: usize = 4096;
@@ -92,26 +96,29 @@ impl Demuxer {
                     None,
                     None,
                 );
+                if pb.is_null() {
+                    bail!("failed to allocate avio context");
+                }
 
                 (*self.ctx).pb = pb;
-                avformat_open_input(
+                let ret = avformat_open_input(
                     &mut self.ctx,
                     if let Some(url) = url {
-                        cstr!(url)
+                        cstr!(url.as_str())
                     } else {
                         ptr::null_mut()
                     },
                     ptr::null_mut(),
                     ptr::null_mut(),
-                )
+                );
+                bail_ffmpeg!(ret);
+                Ok(())
             }
         }
     }
 
     pub unsafe fn probe_input(&mut self) -> Result<DemuxerInfo, Error> {
-        let ret = self.open_input();
-        bail_ffmpeg!(ret);
-
+        self.open()?;
         if avformat_find_stream_info(self.ctx, ptr::null_mut()) < 0 {
             return Err(Error::msg("Could not find stream info"));
         }
@@ -237,7 +244,6 @@ impl Drop for Demuxer {
                     drop(SlimBox::<dyn Read>::from_raw((*(*self.ctx).pb).opaque));
                 }
                 avformat_free_context(self.ctx);
-                self.ctx = ptr::null_mut();
             }
         }
     }

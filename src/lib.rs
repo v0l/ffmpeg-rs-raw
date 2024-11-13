@@ -11,7 +11,7 @@ mod decode;
 mod demux;
 mod encode;
 mod filter;
-mod muxer;
+mod mux;
 mod resample;
 mod scale;
 mod stream_info;
@@ -34,7 +34,7 @@ macro_rules! bail_ffmpeg {
 #[macro_export]
 macro_rules! cstr {
     ($str:expr) => {
-        format!("{}\0", $str).as_ptr() as *const libc::c_char
+        std::ffi::CString::new($str).unwrap().into_raw()
     };
 }
 
@@ -166,7 +166,7 @@ pub use demux::*;
 pub use encode::*;
 pub use ffmpeg_sys_the_third;
 pub use filter::*;
-pub use muxer::*;
+pub use mux::*;
 pub use resample::*;
 pub use scale::*;
 pub use stream_info::*;

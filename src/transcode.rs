@@ -4,7 +4,6 @@ use crate::{
 use anyhow::Result;
 use ffmpeg_sys_the_third::{av_frame_free, av_packet_free};
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::ptr;
 
 /// A common transcoder task taking an input file
@@ -21,7 +20,9 @@ pub struct Transcoder {
 
 impl Transcoder {
     pub unsafe fn new(input: &str, output: &str) -> Result<Self> {
-        let muxer = Muxer::new().with_output(&PathBuf::from(output), None, None)?;
+        let muxer = Muxer::builder()
+            .with_output_path(output, None, None)?
+            .build()?;
 
         Ok(Self {
             demuxer: Demuxer::new(input)?,
@@ -168,8 +169,10 @@ mod tests {
     fn test_remux() -> Result<()> {
         unsafe {
             std::fs::create_dir_all("test_output")?;
-            let mut transcoder =
-                Transcoder::new("test_output/test.mp4", "test_output/test_transcode.mkv")?;
+            let mut transcoder = Transcoder::new(
+                "test_output/test_muxer.mp4",
+                "test_output/test_transcode.mkv",
+            )?;
             let info = transcoder.prepare()?;
             for c in info.streams {
                 transcoder.copy_stream(c)?;
