@@ -1,7 +1,7 @@
 use crate::{bail_ffmpeg, cstr, set_opts, Encoder, AVIO_BUFFER_SIZE};
 use anyhow::{bail, Result};
 use ffmpeg_sys_the_third::{
-    av_dump_format, av_free, av_interleaved_write_frame, av_mallocz, av_packet_rescale_ts,
+    av_free, av_interleaved_write_frame, av_mallocz, av_packet_rescale_ts,
     av_write_trailer, avcodec_parameters_copy, avcodec_parameters_from_context,
     avformat_alloc_output_context2, avformat_free_context, avformat_new_stream,
     avformat_write_header, avio_alloc_context, avio_open, AVFormatContext, AVIOContext, AVPacket,
@@ -275,8 +275,6 @@ impl Muxer {
 
         let ret = avformat_write_header(self.ctx, ptr::null_mut());
         bail_ffmpeg!(ret);
-
-        av_dump_format(self.ctx, 0, (*self.ctx).url, 1);
 
         Ok(())
     }
