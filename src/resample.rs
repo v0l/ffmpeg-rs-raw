@@ -1,5 +1,4 @@
 use crate::bail_ffmpeg;
-use crate::get_ffmpeg_error_msg;
 use anyhow::Error;
 use ffmpeg_sys_the_third::{
     av_channel_layout_default, av_frame_alloc, av_frame_copy_props, av_frame_free,
@@ -63,7 +62,12 @@ impl Resample {
         Ok(())
     }
 
-    pub unsafe fn process_frame(&mut self, frame: *mut AVFrame) -> Result<*mut AVFrame, Error> {
+    /// Resample an audio frame
+    pub unsafe fn process_frame(
+        &mut self,
+        frame: *mut AVFrame,
+        frame_size: i32,
+    ) -> Result<*mut AVFrame, Error> {
         if !(*frame).hw_frames_ctx.is_null() {
             anyhow::bail!("Hardware frames are not supported in this software re-sampler");
         }
@@ -73,15 +77,14 @@ impl Resample {
         av_frame_copy_props(out_frame, frame);
         (*out_frame).sample_rate = self.sample_rate as libc::c_int;
         (*out_frame).format = transmute(self.format);
-        (*out_frame).time_base = (*frame).time_base;
+        (*out_frame).nb_samples = frame_size;
 
         av_channel_layout_default(&mut (*out_frame).ch_layout, self.channels as libc::c_int);
 
         let ret = swr_convert_frame(self.ctx, out_frame, frame);
-        if ret < 0 {
+        bail_ffmpeg!(ret, {
             av_frame_free(&mut out_frame);
-            return Err(Error::msg(get_ffmpeg_error_msg(ret)));
-        }
+        });
 
         Ok(out_frame)
     }

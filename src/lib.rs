@@ -24,8 +24,20 @@ macro_rules! bail_ffmpeg {
             anyhow::bail!($crate::get_ffmpeg_error_msg($x))
         }
     };
+    ($x:expr,$clean:block) => {
+        if $x < 0 {
+            $clean;
+            anyhow::bail!($crate::get_ffmpeg_error_msg($x))
+        }
+    };
     ($x:expr,$msg:expr) => {
         if $x < 0 {
+            anyhow::bail!(format!("{}: {}", $msg, $crate::get_ffmpeg_error_msg($x)))
+        }
+    };
+    ($x:expr,$msg:expr,$clean:block) => {
+        if $x < 0 {
+            $clean;
             anyhow::bail!(format!("{}: {}", $msg, $crate::get_ffmpeg_error_msg($x)))
         }
     };

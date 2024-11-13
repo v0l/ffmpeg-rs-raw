@@ -4,8 +4,8 @@ use std::ptr;
 use crate::{bail_ffmpeg, rstr};
 use anyhow::{bail, Error};
 use ffmpeg_sys_the_third::{
-    av_frame_alloc, av_frame_copy_props, av_get_pix_fmt_name, sws_freeContext, sws_getContext,
-    sws_scale_frame, AVFrame, AVPixelFormat, SwsContext, SWS_BILINEAR,
+    av_frame_alloc, av_frame_copy_props, av_frame_free, av_get_pix_fmt_name, sws_freeContext,
+    sws_getContext, sws_scale_frame, AVFrame, AVPixelFormat, SwsContext, SWS_BILINEAR,
 };
 use log::trace;
 
@@ -108,12 +108,16 @@ impl Scaler {
 
         self.setup_scaler(frame, width, height, format)?;
 
-        let dst_frame = av_frame_alloc();
+        let mut dst_frame = av_frame_alloc();
         let ret = av_frame_copy_props(dst_frame, frame);
-        bail_ffmpeg!(ret);
+        bail_ffmpeg!(ret, {
+            av_frame_free(&mut dst_frame);
+        });
 
         let ret = sws_scale_frame(self.ctx, dst_frame, frame);
-        bail_ffmpeg!(ret);
+        bail_ffmpeg!(ret, {
+            av_frame_free(&mut dst_frame);
+        });
 
         Ok(dst_frame)
     }

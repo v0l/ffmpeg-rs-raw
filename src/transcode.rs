@@ -128,7 +128,8 @@ impl Transcoder {
 
                     // resample audio frame before encoding
                     let mut frame = if let Some(swr) = self.resampler.get_mut(&src_index) {
-                        swr.process_frame(frame)?
+                        let frame_size = (*enc.codec_context()).frame_size;
+                        swr.process_frame(frame, frame_size)?
                     } else {
                         frame
                     };
