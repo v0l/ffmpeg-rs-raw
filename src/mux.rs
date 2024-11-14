@@ -118,7 +118,6 @@ impl MuxerBuilder {
         &mut self,
         dst: Option<&str>,
         format: Option<&str>,
-        options: Option<HashMap<String, String>>,
     ) -> Result<()> {
         if !self.ctx.is_null() {
             bail!("context already open");
@@ -144,11 +143,6 @@ impl MuxerBuilder {
         if (*(*self.ctx).oformat).flags & AVFMT_GLOBALHEADER != 0 {
             (*self.ctx).flags |= AV_CODEC_FLAG_GLOBAL_HEADER as libc::c_int;
         }
-
-        // Set options on ctx
-        if let Some(opts) = options {
-            set_opts((*self.ctx).priv_data, opts)?;
-        }
         Ok(())
     }
 
@@ -157,13 +151,12 @@ impl MuxerBuilder {
         mut self,
         dst: T,
         format: Option<&'a str>,
-        options: Option<HashMap<String, String>>,
     ) -> Result<Self>
     where
         T: Into<&'a str>,
     {
         let path_str = dst.into();
-        self.init_ctx(Some(path_str), format, options)?;
+        self.init_ctx(Some(path_str), format)?;
         self.output = MuxerOutput::Url(path_str.to_string());
         Ok(self)
     }
@@ -174,12 +167,11 @@ impl MuxerBuilder {
         mut self,
         writer: W,
         format: Option<&str>,
-        options: Option<HashMap<String, String>>,
     ) -> Result<Self>
     where
         W: WriteSeek + 'static,
     {
-        self.init_ctx(None, format, options)?;
+        self.init_ctx(None, format)?;
         self.output = MuxerOutput::WriterSeeker(Some(slimbox_unsize!(writer)));
         Ok(self)
     }
@@ -189,12 +181,11 @@ impl MuxerBuilder {
         mut self,
         writer: W,
         format: Option<&str>,
-        options: Option<HashMap<String, String>>,
     ) -> Result<Self>
     where
         W: Write + 'static,
     {
-        self.init_ctx(None, format, options)?;
+        self.init_ctx(None, format)?;
         self.output = MuxerOutput::Writer(Some(slimbox_unsize!(writer)));
         Ok(self)
     }
@@ -290,7 +281,12 @@ impl Muxer {
     }
 
     /// Open the output to start sending packets
-    pub unsafe fn open(&mut self) -> Result<()> {
+    pub unsafe fn open(&mut self, options: Option<HashMap<String, String>>) -> Result<()> {
+        // Set options on ctx
+        if let Some(opts) = options {
+            set_opts((*self.ctx).priv_data, opts)?;
+        }
+
         if (*(*self.ctx).oformat).flags & AVFMT_NOFILE == 0 {
             (*self.ctx).pb = (&mut self.output).try_into()?;
             // if pb is still null, open with ctx.url
@@ -410,10 +406,10 @@ mod tests {
             let (frame, encoder) = setup_encoder()?;
 
             let mut muxer = Muxer::builder()
-                .with_output_path(path.to_str().unwrap(), None, None)?
+                .with_output_path(path.to_str().unwrap(), None)?
                 .with_stream_encoder(&encoder)?
                 .build()?;
-            muxer.open()?;
+            muxer.open(None)?;
             write_frames(muxer, encoder, frame)?;
         }
         Ok(())
@@ -428,10 +424,10 @@ mod tests {
 
             let fout = std::fs::File::create(path)?;
             let mut muxer = Muxer::builder()
-                .with_output_write_seek(fout, Some("mp4"), None)?
+                .with_output_write_seek(fout, Some("mp4"))?
                 .with_stream_encoder(&encoder)?
                 .build()?;
-            muxer.open()?;
+            muxer.open(None)?;
             write_frames(muxer, encoder, frame)?;
         }
         Ok(())
@@ -446,10 +442,10 @@ mod tests {
 
             let fout = std::fs::File::create(path)?;
             let mut muxer = Muxer::builder()
-                .with_output_write(fout, Some("mpegts"), None)?
+                .with_output_write(fout, Some("mpegts"))?
                 .with_stream_encoder(&encoder)?
                 .build()?;
-            muxer.open()?;
+            muxer.open(None)?;
             write_frames(muxer, encoder, frame)?;
         }
         Ok(())

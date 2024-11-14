@@ -21,7 +21,7 @@ pub struct Transcoder {
 impl Transcoder {
     pub unsafe fn new(input: &str, output: &str) -> Result<Self> {
         let muxer = Muxer::builder()
-            .with_output_path(output, None, None)?
+            .with_output_path(output, None)?
             .build()?;
 
         Ok(Self {
@@ -54,8 +54,8 @@ impl Transcoder {
         // Setup scaler if the size/format is different from what the codec expects
         if in_stream.stream_type == StreamType::Video
             && (in_stream.width != (*out_ctx).width as usize
-                || in_stream.height != (*out_ctx).height as usize
-                || in_stream.format != (*out_ctx).pix_fmt as isize)
+            || in_stream.height != (*out_ctx).height as usize
+            || in_stream.format != (*out_ctx).pix_fmt as isize)
         {
             self.scalers.insert(src_index, Scaler::new());
         }
@@ -63,7 +63,7 @@ impl Transcoder {
         // Setup resampler for audio
         if in_stream.stream_type == StreamType::Audio
             && (in_stream.format != (*out_ctx).sample_fmt as isize
-                || in_stream.sample_rate != (*out_ctx).sample_rate as usize)
+            || in_stream.sample_rate != (*out_ctx).sample_rate as usize)
         {
             let r = Resample::new(
                 (*out_ctx).sample_fmt,
@@ -153,8 +153,8 @@ impl Transcoder {
     }
 
     /// Run the transcoder
-    pub unsafe fn run(mut self) -> Result<()> {
-        self.muxer.open()?;
+    pub unsafe fn run(mut self, mux_options: Option<HashMap<String, String>>) -> Result<()> {
+        self.muxer.open(mux_options)?;
         while !self.next()? {
             // nothing here
         }
@@ -178,7 +178,7 @@ mod tests {
             for c in info.streams {
                 transcoder.copy_stream(c)?;
             }
-            transcoder.run()?;
+            transcoder.run(None)?;
 
             Ok(())
         }
