@@ -44,6 +44,8 @@ unsafe extern "C" fn seek_data(opaque: *mut libc::c_void, offset: i64, whence: l
 pub struct Muxer {
     ctx: *mut AVFormatContext,
     output: MuxerOutput,
+    url: Option<String>,
+    format: Option<String>,
 }
 
 pub trait WriteSeek: Seek + Write {}
@@ -104,6 +106,8 @@ impl TryInto<*mut AVIOContext> for &mut MuxerOutput {
 pub struct MuxerBuilder {
     ctx: *mut AVFormatContext,
     output: MuxerOutput,
+    url: Option<String>,
+    format: Option<String>,
 }
 
 impl MuxerBuilder {
@@ -111,20 +115,22 @@ impl MuxerBuilder {
         Self {
             ctx: ptr::null_mut(),
             output: MuxerOutput::Url(String::new()),
+            url: None,
+            format: None,
         }
     }
 
     unsafe fn init_ctx(
-        &mut self,
+        ctx: &mut *mut AVFormatContext,
         dst: Option<&str>,
         format: Option<&str>,
     ) -> Result<()> {
-        if !self.ctx.is_null() {
+        if !ctx.is_null() {
             bail!("context already open");
         }
 
         let ret = avformat_alloc_output_context2(
-            &mut self.ctx,
+            ctx,
             ptr::null_mut(),
             if let Some(format) = format {
                 cstr!(format)
@@ -140,23 +146,20 @@ impl MuxerBuilder {
         bail_ffmpeg!(ret);
 
         // Setup global header flag
-        if (*(*self.ctx).oformat).flags & AVFMT_GLOBALHEADER != 0 {
-            (*self.ctx).flags |= AV_CODEC_FLAG_GLOBAL_HEADER as libc::c_int;
+        if (*(**ctx).oformat).flags & AVFMT_GLOBALHEADER != 0 {
+            (**ctx).flags |= AV_CODEC_FLAG_GLOBAL_HEADER as libc::c_int;
         }
         Ok(())
     }
 
     /// Open the muxer with a destination path
-    pub unsafe fn with_output_path<'a, T>(
-        mut self,
-        dst: T,
-        format: Option<&'a str>,
-    ) -> Result<Self>
+    pub unsafe fn with_output_path<'a, T>(mut self, dst: T, format: Option<&'a str>) -> Result<Self>
     where
         T: Into<&'a str>,
     {
         let path_str = dst.into();
-        self.init_ctx(Some(path_str), format)?;
+        Self::init_ctx(&mut self.ctx, Some(path_str), format)?;
+        self.url = Some(path_str.to_string());
         self.output = MuxerOutput::Url(path_str.to_string());
         Ok(self)
     }
@@ -171,21 +174,18 @@ impl MuxerBuilder {
     where
         W: WriteSeek + 'static,
     {
-        self.init_ctx(None, format)?;
+        Self::init_ctx(&mut self.ctx, None, format)?;
+        self.format = format.map(str::to_string);
         self.output = MuxerOutput::WriterSeeker(Some(slimbox_unsize!(writer)));
         Ok(self)
     }
 
     /// Create a muxer using a custom IO context
-    pub unsafe fn with_output_write<W>(
-        mut self,
-        writer: W,
-        format: Option<&str>,
-    ) -> Result<Self>
+    pub unsafe fn with_output_write<W>(mut self, writer: W, format: Option<&str>) -> Result<Self>
     where
         W: Write + 'static,
     {
-        self.init_ctx(None, format)?;
+        Self::init_ctx(&mut self.ctx, None, format)?;
         self.output = MuxerOutput::Writer(Some(slimbox_unsize!(writer)));
         Ok(self)
     }
@@ -219,6 +219,8 @@ impl MuxerBuilder {
         Ok(Muxer {
             ctx: self.ctx,
             output: self.output,
+            url: self.url,
+            format: self.format,
         })
     }
 
@@ -280,6 +282,33 @@ impl Muxer {
         MuxerBuilder::add_copy_stream(self.ctx, in_stream)
     }
 
+    /// Initialize the context, usually after it was closed with [Muxer::reset]
+    pub unsafe fn init(&mut self) -> Result<()> {
+        MuxerBuilder::init_ctx(
+            &mut self.ctx,
+            self.url.as_ref().map(|v| v.as_str()),
+            self.format.as_ref().map(|v| v.as_str()),
+        )
+    }
+
+    /// Change the muxer URL
+    pub fn set_url(&mut self, url: Option<String>) -> Result<()> {
+        if !self.ctx.is_null() {
+            bail!("Cannot change url while initialized, use reset first");
+        }
+        self.url = url;
+        Ok(())
+    }
+
+    /// Change the muxer format
+    pub fn set_format(&mut self, format: Option<String>) -> Result<()> {
+        if !self.ctx.is_null() {
+            bail!("Cannot change format while initialized, use reset first");
+        }
+        self.format = format;
+        Ok(())
+    }
+
     /// Open the output to start sending packets
     pub unsafe fn open(&mut self, options: Option<HashMap<String, String>>) -> Result<()> {
         // Set options on ctx
@@ -322,9 +351,11 @@ impl Muxer {
     }
 
     /// Close the output and write the trailer
-    pub unsafe fn close(self) -> Result<()> {
+    /// [Muxer::init] can be used to re-init the muxer
+    pub unsafe fn reset(&mut self) -> Result<()> {
         let ret = av_write_trailer(self.ctx);
         bail_ffmpeg!(ret);
+        self.ctx = ptr::null_mut();
         Ok(())
     }
 }
@@ -378,7 +409,7 @@ mod tests {
     }
 
     unsafe fn write_frames(
-        mut muxer: Muxer,
+        muxer: &mut Muxer,
         mut encoder: Encoder,
         frame: *mut AVFrame,
     ) -> Result<()> {
@@ -394,7 +425,7 @@ mod tests {
         for f_pk in encoder.encode_frame(ptr::null_mut())? {
             muxer.write_packet(f_pk)?;
         }
-        muxer.close()?;
+        muxer.reset()?;
         Ok(())
     }
 
@@ -410,7 +441,32 @@ mod tests {
                 .with_stream_encoder(&encoder)?
                 .build()?;
             muxer.open(None)?;
-            write_frames(muxer, encoder, frame)?;
+            write_frames(&mut muxer, encoder, frame)?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn encode_mkv_reinit() -> Result<()> {
+        std::fs::create_dir_all("test_output")?;
+        unsafe {
+            let path = PathBuf::from("test_output/test_muxer_reinit_1.mp4");
+            let (frame, encoder) = setup_encoder()?;
+
+            let mut muxer = Muxer::builder()
+                .with_output_path(path.to_str().unwrap(), None)?
+                .with_stream_encoder(&encoder)?
+                .build()?;
+            muxer.open(None)?;
+            write_frames(&mut muxer, encoder, frame)?;
+
+            let path2 = PathBuf::from("test_output/test_muxer_reinit_2.mp4");
+            let (frame, encoder) = setup_encoder()?;
+            muxer.set_url(Some(path2.to_string_lossy().to_string()))?;
+            muxer.init()?;
+            muxer.add_stream_encoder(&encoder)?;
+            muxer.open(None)?;
+            write_frames(&mut muxer, encoder, frame)?;
         }
         Ok(())
     }
@@ -428,7 +484,7 @@ mod tests {
                 .with_stream_encoder(&encoder)?
                 .build()?;
             muxer.open(None)?;
-            write_frames(muxer, encoder, frame)?;
+            write_frames(&mut muxer, encoder, frame)?;
         }
         Ok(())
     }
@@ -446,7 +502,7 @@ mod tests {
                 .with_stream_encoder(&encoder)?
                 .build()?;
             muxer.open(None)?;
-            write_frames(muxer, encoder, frame)?;
+            write_frames(&mut muxer, encoder, frame)?;
         }
         Ok(())
     }
