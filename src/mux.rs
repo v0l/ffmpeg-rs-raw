@@ -102,16 +102,15 @@ impl TryInto<*mut AVIOContext> for &mut MuxerOutput {
 }
 
 pub struct MuxerBuilder {
-    value: Muxer,
+    ctx: *mut AVFormatContext,
+    output: MuxerOutput,
 }
 
 impl MuxerBuilder {
     pub fn new() -> Self {
         Self {
-            value: Muxer {
-                ctx: ptr::null_mut(),
-                output: MuxerOutput::Url(String::new()),
-            },
+            ctx: ptr::null_mut(),
+            output: MuxerOutput::Url(String::new()),
         }
     }
 
@@ -121,12 +120,12 @@ impl MuxerBuilder {
         format: Option<&str>,
         options: Option<HashMap<String, String>>,
     ) -> Result<()> {
-        if !self.value.ctx.is_null() {
+        if !self.ctx.is_null() {
             bail!("context already open");
         }
 
         let ret = avformat_alloc_output_context2(
-            &mut self.value.ctx,
+            &mut self.ctx,
             ptr::null_mut(),
             if let Some(format) = format {
                 cstr!(format)
@@ -142,13 +141,13 @@ impl MuxerBuilder {
         bail_ffmpeg!(ret);
 
         // Setup global header flag
-        if (*(*self.value.ctx).oformat).flags & AVFMT_GLOBALHEADER != 0 {
-            (*self.value.ctx).flags |= AV_CODEC_FLAG_GLOBAL_HEADER as libc::c_int;
+        if (*(*self.ctx).oformat).flags & AVFMT_GLOBALHEADER != 0 {
+            (*self.ctx).flags |= AV_CODEC_FLAG_GLOBAL_HEADER as libc::c_int;
         }
 
         // Set options on ctx
         if let Some(opts) = options {
-            set_opts((*self.value.ctx).priv_data, opts)?;
+            set_opts((*self.ctx).priv_data, opts)?;
         }
         Ok(())
     }
@@ -165,7 +164,7 @@ impl MuxerBuilder {
     {
         let path_str = dst.into();
         self.init_ctx(Some(path_str), format, options)?;
-        self.value.output = MuxerOutput::Url(path_str.to_string());
+        self.output = MuxerOutput::Url(path_str.to_string());
         Ok(self)
     }
 
@@ -181,7 +180,7 @@ impl MuxerBuilder {
         W: WriteSeek + 'static,
     {
         self.init_ctx(None, format, options)?;
-        self.value.output = MuxerOutput::WriterSeeker(Some(slimbox_unsize!(writer)));
+        self.output = MuxerOutput::WriterSeeker(Some(slimbox_unsize!(writer)));
         Ok(self)
     }
 
@@ -196,39 +195,50 @@ impl MuxerBuilder {
         W: Write + 'static,
     {
         self.init_ctx(None, format, options)?;
-        self.value.output = MuxerOutput::Writer(Some(slimbox_unsize!(writer)));
+        self.output = MuxerOutput::Writer(Some(slimbox_unsize!(writer)));
         Ok(self)
     }
 
     /// Add a stream to the output using an existing encoder
-    pub unsafe fn with_stream_encoder(mut self, encoder: &Encoder) -> Result<Self> {
-        self.value.add_stream_encoder(encoder)?;
+    pub unsafe fn with_stream_encoder(self, encoder: &Encoder) -> Result<Self> {
+        Self::add_stream_from_encoder(self.ctx, encoder)?;
         Ok(self)
     }
 
     /// Add a stream to the output using an existing input stream (copy)
-    pub unsafe fn with_copy_stream(mut self, in_stream: *mut AVStream) -> Result<Self> {
-        self.value.add_copy_stream(in_stream)?;
+    pub unsafe fn with_copy_stream(self, in_stream: *mut AVStream) -> Result<Self> {
+        Self::add_copy_stream(self.ctx, in_stream)?;
         Ok(self)
+    }
+
+    /// Apply custom options to the [AVFormatContext]
+    pub unsafe fn with_custom_options<F>(self, f_mod: F) -> Self
+    where
+        F: FnOnce(*mut AVFormatContext),
+    {
+        f_mod(self.ctx);
+        self
     }
 
     /// Build the muxer
     pub fn build(self) -> Result<Muxer> {
-        if self.value.ctx.is_null() {
+        if self.ctx.is_null() {
             bail!("context is null");
         }
-        Ok(self.value)
-    }
-}
-
-impl Muxer {
-    pub fn builder() -> MuxerBuilder {
-        MuxerBuilder::new()
+        Ok(Muxer {
+            ctx: self.ctx,
+            output: self.output,
+        })
     }
 
-    /// Add a stream to the output using an existing encoder
-    pub unsafe fn add_stream_encoder(&mut self, encoder: &Encoder) -> Result<*mut AVStream> {
-        let stream = avformat_new_stream(self.ctx, encoder.codec());
+    pub unsafe fn add_stream_from_encoder(
+        ctx: *mut AVFormatContext,
+        encoder: &Encoder,
+    ) -> Result<*mut AVStream> {
+        if ctx.is_null() {
+            bail!("cannot add stream to null ctx");
+        }
+        let stream = avformat_new_stream(ctx, encoder.codec());
         if stream.is_null() {
             bail!("unable to allocate stream");
         }
@@ -244,9 +254,14 @@ impl Muxer {
         Ok(stream)
     }
 
-    /// Add a stream to the output using an existing input stream (copy)
-    pub unsafe fn add_copy_stream(&mut self, in_stream: *mut AVStream) -> Result<*mut AVStream> {
-        let stream = avformat_new_stream(self.ctx, ptr::null_mut());
+    pub(crate) unsafe fn add_copy_stream(
+        ctx: *mut AVFormatContext,
+        in_stream: *mut AVStream,
+    ) -> Result<*mut AVStream> {
+        if ctx.is_null() {
+            bail!("cannot add stream to null ctx");
+        }
+        let stream = avformat_new_stream(ctx, ptr::null_mut());
         if stream.is_null() {
             bail!("unable to allocate stream");
         }
@@ -256,6 +271,22 @@ impl Muxer {
         bail_ffmpeg!(ret);
 
         Ok(stream)
+    }
+}
+
+impl Muxer {
+    pub fn builder() -> MuxerBuilder {
+        MuxerBuilder::new()
+    }
+
+    /// Add a stream to the output using an existing encoder
+    pub unsafe fn add_stream_encoder(&mut self, encoder: &Encoder) -> Result<*mut AVStream> {
+        MuxerBuilder::add_stream_from_encoder(self.ctx, encoder)
+    }
+
+    /// Add a stream to the output using an existing input stream (copy)
+    pub unsafe fn add_copy_stream(&mut self, in_stream: *mut AVStream) -> Result<*mut AVStream> {
+        MuxerBuilder::add_copy_stream(self.ctx, in_stream)
     }
 
     /// Open the output to start sending packets
@@ -276,6 +307,11 @@ impl Muxer {
         bail_ffmpeg!(ret);
 
         Ok(())
+    }
+
+    /// Get [AVFormatContext] pointer
+    pub fn context(&self) -> *mut AVFormatContext {
+        self.ctx
     }
 
     /// Write a packet to the output
@@ -322,7 +358,6 @@ mod tests {
 
     unsafe fn setup_encoder() -> Result<(*mut AVFrame, Encoder)> {
         std::fs::create_dir_all("test_output")?;
-        let path = PathBuf::from("test_output/test.mp4");
         let frame = generate_test_frame();
 
         // convert frame to YUV
