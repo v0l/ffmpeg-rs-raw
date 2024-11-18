@@ -8,6 +8,7 @@ use ffmpeg_sys_the_third::{
 
 pub struct AudioFifo {
     ctx: *mut AVAudioFifo,
+    pts: i64,
 }
 
 impl AudioFifo {
@@ -16,7 +17,7 @@ impl AudioFifo {
         if ctx.is_null() {
             bail!("Could not allocate audio fifo");
         }
-        Ok(Self { ctx })
+        Ok(Self { ctx, pts: 0 })
     }
 
     /// Buffer a resampled frame, and get a frame from the buffer with the desired size
@@ -55,6 +56,11 @@ impl AudioFifo {
                 av_frame_free(&mut out_frame);
                 bail!("Failed to read audio frame");
             }
+
+            // assign PTS
+            (*out_frame).pts = self.pts;
+            self.pts += (*out_frame).nb_samples as i64;
+
             Ok(Some(out_frame))
         } else {
             Ok(None)
