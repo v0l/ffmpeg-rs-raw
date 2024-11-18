@@ -5,14 +5,13 @@ use std::fmt::{Display, Formatter};
 use std::ptr;
 
 use anyhow::Error;
-use ffmpeg_sys_the_third::AVPictureType::AV_PICTURE_TYPE_NONE;
 use ffmpeg_sys_the_third::{
-    av_buffer_ref, av_frame_alloc, av_hwdevice_ctx_create, av_hwdevice_get_type_name,
-    av_hwdevice_iterate_types, avcodec_alloc_context3, avcodec_find_decoder, avcodec_free_context,
-    avcodec_get_hw_config, avcodec_get_name, avcodec_open2, avcodec_parameters_to_context,
-    avcodec_receive_frame, avcodec_send_packet, AVCodec, AVCodecContext, AVCodecHWConfig, AVFrame,
-    AVHWDeviceType, AVPacket, AVStream, AVERROR, AVERROR_EOF,
-    AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX,
+    av_buffer_ref, av_frame_alloc, av_frame_free, av_hwdevice_ctx_create,
+    av_hwdevice_get_type_name, av_hwdevice_iterate_types, avcodec_alloc_context3,
+    avcodec_find_decoder, avcodec_free_context, avcodec_get_hw_config, avcodec_get_name,
+    avcodec_open2, avcodec_parameters_to_context, avcodec_receive_frame, avcodec_send_packet,
+    AVCodec, AVCodecContext, AVCodecHWConfig, AVFrame, AVHWDeviceType, AVPacket, AVStream, AVERROR,
+    AVERROR_EOF, AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX,
 };
 use log::trace;
 
@@ -255,16 +254,15 @@ impl Decoder {
 
         let mut pkgs = Vec::new();
         while ret >= 0 {
-            let frame = av_frame_alloc();
+            let mut frame = av_frame_alloc();
             ret = avcodec_receive_frame(ctx, frame);
             if ret < 0 {
+                av_frame_free(&mut frame);
                 if ret == AVERROR_EOF || ret == AVERROR(libc::EAGAIN) {
                     break;
                 }
                 return Err(Error::msg(format!("Failed to decode {}", ret)));
             }
-
-            (*frame).pict_type = AV_PICTURE_TYPE_NONE; // encoder prints warnings
             pkgs.push(frame);
         }
         Ok(pkgs)

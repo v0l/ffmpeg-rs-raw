@@ -222,9 +222,10 @@ impl Demuxer {
     }
 
     pub unsafe fn get_packet(&mut self) -> Result<(*mut AVPacket, *mut AVStream), Error> {
-        let pkt: *mut AVPacket = av_packet_alloc();
+        let mut pkt = av_packet_alloc();
         let ret = av_read_frame(self.ctx, pkt);
         if ret == AVERROR_EOF {
+            av_packet_free(&mut pkt);
             return Ok((ptr::null_mut(), ptr::null_mut()));
         }
         bail_ffmpeg!(ret);

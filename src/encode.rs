@@ -3,7 +3,13 @@ use std::{ptr, slice};
 
 use crate::{bail_ffmpeg, cstr, get_ffmpeg_error_msg, options_to_dict};
 use anyhow::{bail, Error, Result};
-use ffmpeg_sys_the_third::{av_channel_layout_default, av_d2q, av_inv_q, av_packet_alloc, av_packet_free, avcodec_alloc_context3, avcodec_find_encoder, avcodec_find_encoder_by_name, avcodec_free_context, avcodec_get_supported_config, avcodec_open2, avcodec_receive_packet, avcodec_send_frame, AVChannelLayout, AVCodec, AVCodecConfig, AVCodecContext, AVCodecID, AVFrame, AVPacket, AVPixelFormat, AVRational, AVSampleFormat, AVERROR, AVERROR_EOF};
+use ffmpeg_sys_the_third::{
+    av_channel_layout_default, av_d2q, av_inv_q, av_packet_alloc, av_packet_free,
+    avcodec_alloc_context3, avcodec_find_encoder, avcodec_find_encoder_by_name,
+    avcodec_free_context, avcodec_get_supported_config, avcodec_open2, avcodec_receive_packet,
+    avcodec_send_frame, AVChannelLayout, AVCodec, AVCodecConfig, AVCodecContext, AVCodecID,
+    AVFrame, AVPacket, AVPixelFormat, AVRational, AVSampleFormat, AVERROR, AVERROR_EOF,
+};
 use libc::EAGAIN;
 
 pub struct Encoder {

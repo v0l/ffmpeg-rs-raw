@@ -240,9 +240,8 @@ impl MuxerBuilder {
 
         // setup other stream params
         let encoder_ctx = encoder.codec_context();
+        (*stream).sample_aspect_ratio = (*encoder_ctx).sample_aspect_ratio;
         (*stream).time_base = (*encoder_ctx).time_base;
-        (*stream).avg_frame_rate = (*encoder_ctx).framerate;
-        (*stream).r_frame_rate = (*encoder_ctx).framerate;
 
         Ok(stream)
     }
