@@ -65,8 +65,7 @@ impl Resample {
     /// Resample an audio frame
     pub unsafe fn process_frame(
         &mut self,
-        frame: *mut AVFrame,
-        frame_size: i32,
+        frame: *mut AVFrame
     ) -> Result<*mut AVFrame, Error> {
         if !(*frame).hw_frames_ctx.is_null() {
             anyhow::bail!("Hardware frames are not supported in this software re-sampler");
@@ -77,8 +76,6 @@ impl Resample {
         av_frame_copy_props(out_frame, frame);
         (*out_frame).sample_rate = self.sample_rate as libc::c_int;
         (*out_frame).format = transmute(self.format);
-        (*out_frame).nb_samples = frame_size;
-
         av_channel_layout_default(&mut (*out_frame).ch_layout, self.channels as libc::c_int);
 
         let ret = swr_convert_frame(self.ctx, out_frame, frame);
