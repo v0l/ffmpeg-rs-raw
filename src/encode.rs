@@ -1,5 +1,6 @@
 use crate::{bail_ffmpeg, cstr, get_ffmpeg_error_msg, options_to_dict};
 use anyhow::{bail, Error, Result};
+use ffmpeg_sys_the_third::AVPictureType::AV_PICTURE_TYPE_NONE;
 use ffmpeg_sys_the_third::{
     av_channel_layout_default, av_d2q, av_inv_q, av_packet_alloc, av_packet_free,
     avcodec_alloc_context3, avcodec_find_encoder, avcodec_find_encoder_by_name,
@@ -208,6 +209,12 @@ impl Encoder {
         frame: *mut AVFrame,
     ) -> Result<Vec<*mut AVPacket>, Error> {
         let mut pkgs = Vec::new();
+
+        if !frame.is_null() {
+            // always reset pict_type, this can be set by the decoder,
+            // but it confuses the encoder
+            (*frame).pict_type = AV_PICTURE_TYPE_NONE;
+        }
 
         let mut ret = avcodec_send_frame(self.ctx, frame);
         if ret < 0 && ret != AVERROR(EAGAIN) {
