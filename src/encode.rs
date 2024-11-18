@@ -1,15 +1,9 @@
 use std::collections::HashMap;
 use std::{ptr, slice};
 
-use crate::{bail_ffmpeg, get_ffmpeg_error_msg, options_to_dict};
-use anyhow::{bail, Error};
-use ffmpeg_sys_the_third::{
-    av_channel_layout_default, av_d2q, av_inv_q, av_packet_alloc, av_packet_free,
-    avcodec_alloc_context3, avcodec_find_encoder, avcodec_free_context,
-    avcodec_get_supported_config, avcodec_open2, avcodec_receive_packet, avcodec_send_frame,
-    AVChannelLayout, AVCodec, AVCodecConfig, AVCodecContext, AVCodecID, AVFrame, AVPacket,
-    AVPixelFormat, AVRational, AVSampleFormat, AVERROR, AVERROR_EOF,
-};
+use crate::{bail_ffmpeg, cstr, get_ffmpeg_error_msg, options_to_dict};
+use anyhow::{bail, Error, Result};
+use ffmpeg_sys_the_third::{av_channel_layout_default, av_d2q, av_inv_q, av_packet_alloc, av_packet_free, avcodec_alloc_context3, avcodec_find_encoder, avcodec_find_encoder_by_name, avcodec_free_context, avcodec_get_supported_config, avcodec_open2, avcodec_receive_packet, avcodec_send_frame, AVChannelLayout, AVCodec, AVCodecConfig, AVCodecContext, AVCodecID, AVFrame, AVPacket, AVPixelFormat, AVRational, AVSampleFormat, AVERROR, AVERROR_EOF};
 use libc::EAGAIN;
 
 pub struct Encoder {
@@ -29,13 +23,31 @@ impl Drop for Encoder {
 }
 
 impl Encoder {
-    /// Create a new encoder with the specified codec
-    pub fn new(codec: AVCodecID) -> Result<Self, Error> {
+    /// Create a new encoder by codec id
+    pub fn new(codec: AVCodecID) -> Result<Self> {
         unsafe {
             let codec = avcodec_find_encoder(codec);
             if codec.is_null() {
                 bail!("codec not found");
             }
+            Self::new_with_codec(codec)
+        }
+    }
+
+    /// Create a new encoder by name
+    pub fn new_with_name(name: &str) -> Result<Self> {
+        unsafe {
+            let codec = avcodec_find_encoder_by_name(cstr!(name));
+            if codec.is_null() {
+                bail!("codec not found");
+            }
+            Self::new_with_codec(codec)
+        }
+    }
+
+    /// Create a new encoder with a specific codec instance
+    pub fn new_with_codec(codec: *const AVCodec) -> Result<Self> {
+        unsafe {
             let ctx = avcodec_alloc_context3(codec);
             if ctx.is_null() {
                 bail!("context allocation failed");
