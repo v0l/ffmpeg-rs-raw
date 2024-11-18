@@ -1,6 +1,3 @@
-use std::collections::HashMap;
-use std::{ptr, slice};
-
 use crate::{bail_ffmpeg, cstr, get_ffmpeg_error_msg, options_to_dict};
 use anyhow::{bail, Error, Result};
 use ffmpeg_sys_the_third::{
@@ -11,6 +8,9 @@ use ffmpeg_sys_the_third::{
     AVFrame, AVPacket, AVPixelFormat, AVRational, AVSampleFormat, AVERROR, AVERROR_EOF,
 };
 use libc::EAGAIN;
+use std::collections::HashMap;
+use std::io::Write;
+use std::{ptr, slice};
 
 pub struct Encoder {
     ctx: *mut AVCodecContext,
@@ -233,13 +233,27 @@ impl Encoder {
 
         Ok(pkgs)
     }
+
+    /// Encode a single frame and write it to disk
+    pub unsafe fn save_picture(mut self, frame: *mut AVFrame, dst: &str) -> Result<()> {
+        let mut fout = std::fs::File::create(dst)?;
+
+        for pkt in self.encode_frame(frame)? {
+            let pkt_slice = slice::from_raw_parts((*pkt).data, (*pkt).size as usize);
+            fout.write_all(pkt_slice)?;
+        }
+        for pkt in self.encode_frame(ptr::null_mut())? {
+            let pkt_slice = slice::from_raw_parts((*pkt).data, (*pkt).size as usize);
+            fout.write_all(pkt_slice)?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::generate_test_frame;
-    use std::io::Write;
 
     #[test]
     fn test_encode_png() -> Result<(), Error> {
@@ -254,13 +268,7 @@ mod tests {
             encoder = encoder.with_pix_fmt(pix_fmts[0]).open(None)?;
 
             std::fs::create_dir_all("test_output")?;
-            let mut test_file = std::fs::File::create("test_output/test.png")?;
-            let mut pkts = encoder.encode_frame(frame)?;
-            let flush_pkts = encoder.encode_frame(ptr::null_mut())?;
-            pkts.extend(flush_pkts);
-            for pkt in pkts {
-                test_file.write(slice::from_raw_parts((*pkt).data, (*pkt).size as usize))?;
-            }
+            encoder.save_picture(frame, "test_output/test.png")?;
         }
         Ok(())
     }
