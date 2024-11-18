@@ -81,7 +81,7 @@ mod tests {
 
             let mut enc = Encoder::new_with_name("libfdk_aac")?
                 .with_sample_format(AVSampleFormat::AV_SAMPLE_FMT_S16)
-                .with_sample_rate(48_000)
+                .with_sample_rate(48_000)?
                 .with_default_channel_layout(2)
                 .open(None)?;
 

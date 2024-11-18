@@ -400,7 +400,7 @@ mod tests {
             .with_height((*frame).height)
             .with_pix_fmt(AV_PIX_FMT_YUV420P)
             .with_bitrate(1_000_000)
-            .with_framerate(30.0)
+            .with_framerate(30.0)?
             .with_profile(AV_PROFILE_H264_MAIN)
             .with_level(50)
             .open(None)?;

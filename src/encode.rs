@@ -108,9 +108,13 @@ impl Encoder {
     }
 
     /// Set the encoder sample rate (audio)
-    pub unsafe fn with_sample_rate(self, fmt: i32) -> Self {
-        (*self.ctx).sample_rate = fmt;
-        self
+    pub unsafe fn with_sample_rate(self, rate: i32) -> Result<Self> {
+        if (*self.ctx).time_base.num != 1 || (*self.ctx).time_base.den != 1 {
+            bail!("Cannot assign sample_rate for a video encoder")
+        }
+        (*self.ctx).sample_rate = rate;
+        (*self.ctx).time_base = AVRational { num: 1, den: rate };
+        Ok(self)
     }
 
     /// Set the encoder width in pixels
@@ -138,11 +142,14 @@ impl Encoder {
     }
 
     /// Set the encoder framerate
-    pub unsafe fn with_framerate(self, fps: f32) -> Self {
+    pub unsafe fn with_framerate(self, fps: f32) -> Result<Self> {
+        if (*self.ctx).time_base.num != 1 || (*self.ctx).time_base.den != 1 {
+            bail!("Cannot assign framerate for an audio encoder")
+        }
         let q = av_d2q(fps as f64, 90_000);
         (*self.ctx).framerate = q;
         (*self.ctx).time_base = av_inv_q(q);
-        self
+        Ok(self)
     }
 
     /// Set the encoder pixel format
