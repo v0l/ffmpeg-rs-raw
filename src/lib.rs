@@ -95,7 +95,7 @@ pub unsafe extern "C" fn av_log_redirect(
         1024,
         ptr::addr_of_mut!(prefix),
     );
-    log!(target: "ffmpeg", log_level, "{}", rstr!(buf.as_ptr() as *const libc::c_char));
+    log!(target: "ffmpeg", log_level, "{}", rstr!(buf.as_ptr() as *const libc::c_char).trim());
 }
 
 pub(crate) const AVIO_BUFFER_SIZE: usize = 4096;
