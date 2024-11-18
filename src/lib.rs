@@ -7,6 +7,7 @@ use ffmpeg_sys_the_third::{
 use std::collections::HashMap;
 use std::ptr;
 
+mod audio_fifo;
 mod decode;
 mod demux;
 mod encode;
@@ -212,6 +213,7 @@ pub unsafe fn generate_test_frame() -> *mut AVFrame {
     frame
 }
 
+pub use audio_fifo::*;
 pub use decode::*;
 pub use demux::*;
 pub use encode::*;
