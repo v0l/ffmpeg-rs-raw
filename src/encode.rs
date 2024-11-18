@@ -177,6 +177,7 @@ impl Encoder {
     }
 
     /// Encode a frame, returning a number of [AVPacket]
+    /// MAKE SURE TIMESTAMP ARE SET CORRECTLY
     pub unsafe fn encode_frame(
         &mut self,
         frame: *mut AVFrame,

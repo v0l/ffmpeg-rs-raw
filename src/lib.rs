@@ -61,6 +61,43 @@ macro_rules! rstr {
     };
 }
 
+#[cfg(target_os = "macos")]
+type VaList = ffmpeg_sys_the_third::va_list;
+#[cfg(target_os = "linux")]
+type VaList = *mut ffmpeg_sys_the_third::__va_list_tag;
+#[cfg(target_os = "android")]
+type VaList = [u64; 4];
+
+pub unsafe extern "C" fn av_log_redirect(
+    av_class: *mut libc::c_void,
+    level: libc::c_int,
+    fmt: *const libc::c_char,
+    args: VaList,
+) {
+    use ffmpeg_sys_the_third::*;
+    let log_level = match level {
+        AV_LOG_DEBUG => log::Level::Debug,
+        AV_LOG_WARNING => log::Level::Warn,
+        AV_LOG_INFO => log::Level::Info,
+        AV_LOG_ERROR => log::Level::Error,
+        AV_LOG_PANIC => log::Level::Error,
+        AV_LOG_FATAL => log::Level::Error,
+        _ => log::Level::Trace,
+    };
+    let mut buf: [u8; 1024] = [0; 1024];
+    let mut prefix: libc::c_int = 1;
+    av_log_format_line(
+        av_class,
+        level,
+        fmt,
+        args,
+        buf.as_mut_ptr() as *mut libc::c_char,
+        1024,
+        ptr::addr_of_mut!(prefix),
+    );
+    log!(target: "ffmpeg", log_level, "{}", rstr!(buf.as_ptr() as *const libc::c_char));
+}
+
 pub(crate) const AVIO_BUFFER_SIZE: usize = 4096;
 
 fn get_ffmpeg_error_msg(ret: libc::c_int) -> String {
@@ -180,6 +217,7 @@ pub use demux::*;
 pub use encode::*;
 pub use ffmpeg_sys_the_third;
 pub use filter::*;
+use log::log;
 pub use mux::*;
 pub use resample::*;
 pub use scale::*;

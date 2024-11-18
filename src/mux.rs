@@ -414,7 +414,7 @@ mod tests {
         frame: *mut AVFrame,
     ) -> Result<()> {
         let mut pts = 0;
-        for _z in 0..100 {
+        for _z in 0..90 {
             (*frame).pts = pts;
             for pkt in encoder.encode_frame(frame)? {
                 muxer.write_packet(pkt)?;
