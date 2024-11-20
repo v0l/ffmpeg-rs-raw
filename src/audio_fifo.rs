@@ -30,11 +30,12 @@ impl AudioFifo {
             av_audio_fifo_realloc(self.ctx, av_audio_fifo_size(self.ctx) + (*frame).nb_samples);
         bail_ffmpeg!(ret);
 
-        ret = av_audio_fifo_write(
-            self.ctx,
-            (*frame).extended_data as *const _,
-            (*frame).nb_samples,
-        );
+        #[cfg(feature = "avutil_version_greater_than_58_22")]
+        let buf_ptr = (*frame).extended_data as *const _;
+        #[cfg(not(feature = "avutil_version_greater_than_58_22"))]
+        let buf_ptr = (*frame).extended_data as *mut _;
+
+        ret = av_audio_fifo_write(self.ctx, buf_ptr, (*frame).nb_samples);
         bail_ffmpeg!(ret);
 
         if av_audio_fifo_size(self.ctx) >= samples_out as _ {
@@ -47,12 +48,12 @@ impl AudioFifo {
             ret = av_frame_get_buffer(out_frame, 0);
             bail_ffmpeg!(ret, { av_frame_free(&mut out_frame) });
 
-            if av_audio_fifo_read(
-                self.ctx,
-                (*out_frame).extended_data as *mut _,
-                samples_out as _,
-            ) < samples_out as _
-            {
+            #[cfg(feature = "avutil_version_greater_than_58_22")]
+            let buf_ptr = (*out_frame).extended_data as *const _;
+            #[cfg(not(feature = "avutil_version_greater_than_58_22"))]
+            let buf_ptr = (*out_frame).extended_data as *mut _;
+
+            if av_audio_fifo_read(self.ctx, buf_ptr, samples_out as _) < samples_out as _ {
                 av_frame_free(&mut out_frame);
                 bail!("Failed to read audio frame");
             }

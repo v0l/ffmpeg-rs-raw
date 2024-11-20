@@ -4,10 +4,13 @@ use ffmpeg_sys_the_third::AVPictureType::AV_PICTURE_TYPE_NONE;
 use ffmpeg_sys_the_third::{
     av_channel_layout_default, av_d2q, av_inv_q, av_packet_alloc, av_packet_free,
     avcodec_alloc_context3, avcodec_find_encoder, avcodec_find_encoder_by_name,
-    avcodec_free_context, avcodec_get_supported_config, avcodec_open2, avcodec_receive_packet,
-    avcodec_send_frame, AVChannelLayout, AVCodec, AVCodecConfig, AVCodecContext, AVCodecID,
-    AVFrame, AVPacket, AVPixelFormat, AVRational, AVSampleFormat, AVERROR, AVERROR_EOF,
+    avcodec_free_context, avcodec_open2, avcodec_receive_packet, avcodec_send_frame,
+    AVChannelLayout, AVCodec, AVCodecContext, AVCodecID, AVFrame, AVPacket, AVPixelFormat,
+    AVRational, AVSampleFormat, AVERROR, AVERROR_EOF,
 };
+#[cfg(feature = "avcodec_version_greater_than_61_13")]
+use ffmpeg_sys_the_third::{avcodec_get_supported_config, AVCodecConfig};
+
 use libc::EAGAIN;
 use std::collections::HashMap;
 use std::io::Write;
@@ -79,6 +82,7 @@ impl Encoder {
         self.ctx
     }
 
+    #[cfg(feature = "avcodec_version_greater_than_61_13")]
     /// List supported configs (see [avcodec_get_supported_config])
     pub unsafe fn list_configs<'a, T>(&mut self, cfg: AVCodecConfig) -> Result<&'a [T], Error> {
         let mut dst = ptr::null_mut();
@@ -261,6 +265,7 @@ impl Encoder {
 mod tests {
     use super::*;
     use crate::generate_test_frame;
+    use ffmpeg_sys_the_third::AVPixelFormat::AV_PIX_FMT_YUV420P;
 
     #[test]
     fn test_encode_png() -> Result<(), Error> {
@@ -270,8 +275,12 @@ mod tests {
                 .with_width((*frame).width)
                 .with_height((*frame).height);
 
+            #[cfg(feature = "avcodec_version_greater_than_61_13")]
             let pix_fmts: &[AVPixelFormat] =
                 encoder.list_configs(AVCodecConfig::AV_CODEC_CONFIG_PIX_FORMAT)?;
+            #[cfg(not(feature = "avcodec_version_greater_than_61_13"))]
+            let pix_fmts = [AV_PIX_FMT_YUV420P];
+
             encoder = encoder.with_pix_fmt(pix_fmts[0]).open(None)?;
 
             std::fs::create_dir_all("test_output")?;

@@ -1,8 +1,10 @@
 use crate::{format_time, rstr};
+#[cfg(feature = "avformat_version_greater_than_60_19")]
+use ffmpeg_sys_the_third::AVStreamGroup;
 use ffmpeg_sys_the_third::{
     av_get_pix_fmt_name, av_get_sample_fmt_name, avcodec_get_name, AVMediaType, AVStream,
-    AVStreamGroup,
 };
+
 use std::fmt::{Display, Formatter};
 use std::intrinsics::transmute;
 
@@ -11,6 +13,7 @@ pub struct DemuxerInfo {
     pub bitrate: usize,
     pub duration: f32,
     pub streams: Vec<StreamInfo>,
+    #[cfg(feature = "avformat_version_greater_than_60_19")]
     pub groups: Vec<StreamGroupInfo>,
 }
 
@@ -178,6 +181,7 @@ impl Display for StreamInfo {
     }
 }
 
+#[cfg(feature = "avformat_version_greater_than_60_19")]
 #[derive(Clone, Debug, PartialEq)]
 pub enum StreamGroupType {
     TileGrid {
@@ -189,6 +193,7 @@ pub enum StreamGroupType {
     },
 }
 
+#[cfg(feature = "avformat_version_greater_than_60_19")]
 #[derive(Clone, Debug, PartialEq)]
 pub struct StreamGroupInfo {
     pub index: usize,
@@ -198,4 +203,5 @@ pub struct StreamGroupInfo {
     pub(crate) group: *mut AVStreamGroup,
 }
 
+#[cfg(feature = "avformat_version_greater_than_60_19")]
 unsafe impl Send for StreamGroupInfo {}

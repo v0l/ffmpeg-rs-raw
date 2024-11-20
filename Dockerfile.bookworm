@@ -1,0 +1,15 @@
+FROM rust:bookworm
+WORKDIR /src
+COPY . .
+RUN apt update && apt install -y \
+          build-essential \
+          libavcodec-dev \
+          libavformat-dev \
+          libavutil-dev \
+          libavdevice-dev \
+          libswresample-dev \
+          libswscale-dev \
+          libpipewire-0.3-dev \
+          libasound2-dev \
+          libclang-dev
+RUN cargo build --release

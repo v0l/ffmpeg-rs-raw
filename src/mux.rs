@@ -14,7 +14,8 @@ use std::{ptr, slice};
 
 unsafe extern "C" fn write_data<T>(
     opaque: *mut libc::c_void,
-    buffer: *const u8,
+    #[cfg(feature = "avformat_version_greater_than_60_12")] buffer: *const u8,
+    #[cfg(not(feature = "avformat_version_greater_than_60_12"))] buffer: *mut u8,
     size: libc::c_int,
 ) -> libc::c_int
 where

@@ -5,7 +5,6 @@ use ffmpeg_sys_the_third::{
     swr_alloc_set_opts2, swr_convert_frame, swr_free, swr_init, AVChannelLayout, AVFrame,
     AVSampleFormat, SwrContext,
 };
-use libc::malloc;
 use std::mem::transmute;
 use std::ptr;
 
@@ -40,15 +39,15 @@ impl Resample {
         if !self.ctx.is_null() {
             return Ok(());
         }
-        let layout = malloc(size_of::<AVChannelLayout>()) as *mut AVChannelLayout;
-        av_channel_layout_default(layout, self.channels as libc::c_int);
+        let mut layout = AVChannelLayout::empty();
+        av_channel_layout_default(&mut layout, self.channels as libc::c_int);
 
         let ret = swr_alloc_set_opts2(
             &mut self.ctx,
-            layout,
+            ptr::addr_of_mut!(layout),
             self.format,
             self.sample_rate as libc::c_int,
-            &(*frame).ch_layout,
+            ptr::addr_of_mut!((*frame).ch_layout),
             transmute((*frame).format),
             (*frame).sample_rate,
             0,
@@ -63,10 +62,7 @@ impl Resample {
     }
 
     /// Resample an audio frame
-    pub unsafe fn process_frame(
-        &mut self,
-        frame: *mut AVFrame
-    ) -> Result<*mut AVFrame, Error> {
+    pub unsafe fn process_frame(&mut self, frame: *mut AVFrame) -> Result<*mut AVFrame, Error> {
         if !(*frame).hw_frames_ctx.is_null() {
             anyhow::bail!("Hardware frames are not supported in this software re-sampler");
         }

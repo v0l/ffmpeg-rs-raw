@@ -1,6 +1,9 @@
-use crate::{bail_ffmpeg, cstr, rstr, StreamGroupInfo, StreamGroupType};
+use crate::{bail_ffmpeg, cstr, rstr};
 use crate::{DemuxerInfo, StreamInfo, StreamType};
+#[cfg(feature = "avformat_version_greater_than_60_19")]
+use crate::{StreamGroupInfo, StreamGroupType};
 use anyhow::{bail, Error, Result};
+#[cfg(feature = "avformat_version_greater_than_60_22")]
 use ffmpeg_sys_the_third::AVStreamGroupParamsType::AV_STREAM_GROUP_PARAMS_TILE_GRID;
 use ffmpeg_sys_the_third::*;
 use log::warn;
@@ -124,13 +127,16 @@ impl Demuxer {
         }
 
         let mut streams = vec![];
+        #[cfg(feature = "avformat_version_greater_than_60_19")]
         let mut stream_groups = vec![];
 
         let mut n_stream = 0;
+        #[cfg(feature = "avformat_version_greater_than_60_19")]
         for n in 0..(*self.ctx).nb_stream_groups as usize {
             let group = *(*self.ctx).stream_groups.add(n);
             n_stream += (*group).nb_streams as usize;
             match (*group).type_ {
+                #[cfg(feature = "avformat_version_greater_than_60_22")]
                 AV_STREAM_GROUP_PARAMS_TILE_GRID => {
                     let tg = (*group).params.tile_grid;
                     let codec_par = (*(*(*group).streams.add(0))).codecpar;
@@ -216,6 +222,7 @@ impl Demuxer {
             duration: (*self.ctx).duration as f32 / AV_TIME_BASE as f32,
             bitrate: (*self.ctx).bit_rate as usize,
             streams,
+            #[cfg(feature = "avformat_version_greater_than_60_19")]
             groups: stream_groups,
         };
         Ok(info)
@@ -255,6 +262,7 @@ impl Drop for Demuxer {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "avformat_version_greater_than_60_19")]
     #[test]
     #[ignore]
     fn test_stream_groups() -> Result<()> {
