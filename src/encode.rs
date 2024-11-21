@@ -265,7 +265,6 @@ impl Encoder {
 mod tests {
     use super::*;
     use crate::generate_test_frame;
-    use ffmpeg_sys_the_third::AVPixelFormat::AV_PIX_FMT_YUV420P;
 
     #[test]
     fn test_encode_png() -> Result<(), Error> {

@@ -18,6 +18,11 @@ mod scale;
 mod stream_info;
 mod transcode;
 
+#[cfg(not(feature = "avcodec_version_greater_than_59_24"))]
+compile_error!("avcodec version too old, < 59.24");
+#[cfg(not(feature = "avutil_version_greater_than_57_24"))]
+compile_error!("avutil version too old, <57.24");
+
 #[macro_export]
 macro_rules! bail_ffmpeg {
     ($x:expr) => {
