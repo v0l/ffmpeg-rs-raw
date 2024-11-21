@@ -62,6 +62,19 @@ macro_rules! rstr {
     };
 }
 
+/// Version dependant [AVFrame].duration
+pub unsafe fn get_frame_duration(frame: *mut AVFrame) -> i64 {
+    #[cfg(feature = "avutil_version_greater_than_57_30")]
+    return (*frame).duration;
+    #[cfg(feature = "avcodec_version_greater_than_54_24")]
+    return (*frame).pkt_duration;
+    #[cfg(all(
+        not(feature = "avcodec_version_greater_than_54_24"),
+        not(feature = "avutil_version_greater_than_57_30")
+    ))]
+    compile_error!("no frame duration support");
+}
+
 #[cfg(target_os = "macos")]
 type VaList = ffmpeg_sys_the_third::va_list;
 #[cfg(target_os = "linux")]

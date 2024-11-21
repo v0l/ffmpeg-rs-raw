@@ -8,10 +8,6 @@ fn main() {
             let feature_name = name["DEP_FFMPEG_".len()..name.len()].to_lowercase();
             println!(r#"cargo::rustc-check-cfg=cfg(feature, values("{feature_name}"))"#);
             println!(r#"cargo::rustc-cfg=feature="{feature_name}""#);
-            println!(
-                r#"cargo::rustc-env=DEP_FFMPEG_{}=1"#,
-                feature_name.to_uppercase()
-            );
         }
     }
 }
