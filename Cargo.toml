@@ -10,7 +10,7 @@ crate-type = ["lib", "cdylib"]
 
 [dependencies]
 anyhow = "1.0.91"
-ffmpeg-sys-the-third = { git = "https://git.v0l.io/Kieran/ffmpeg-the-third.git", ref = "e5f8e077b04b10d5887bce4df1eb1a71738a6c66", package = "ffmpeg-sys-the-third" }
+ffmpeg-sys-the-third = { git = "https://git.v0l.io/Kieran/ffmpeg-the-third.git", rev = "e5f8e077b04b10d5887bce4df1eb1a71738a6c66", package = "ffmpeg-sys-the-third" }
 libc = { version = "0.2.160" }
 slimbox = "0.1.0"
 log = "0.4.22"

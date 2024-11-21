@@ -187,7 +187,7 @@ dependencies = [
 [[package]]
 name = "ffmpeg-sys-the-third"
 version = "2.1.0+ffmpeg-7.1"
-source = "git+https://git.v0l.io/Kieran/ffmpeg-the-third.git#e5f8e077b04b10d5887bce4df1eb1a71738a6c66"
+source = "git+https://git.v0l.io/Kieran/ffmpeg-the-third.git?rev=e5f8e077b04b10d5887bce4df1eb1a71738a6c66#e5f8e077b04b10d5887bce4df1eb1a71738a6c66"
 dependencies = [
  "bindgen",
  "cc",
