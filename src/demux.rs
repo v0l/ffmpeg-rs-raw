@@ -20,8 +20,8 @@ unsafe extern "C" fn read_data(
 ) -> libc::c_int {
     let mut buffer: SlimMut<'_, dyn Read + 'static> = SlimMut::from_raw(opaque);
     let dst_slice: &mut [u8] = slice::from_raw_parts_mut(dst_buffer, size as usize);
-    match buffer.read_exact(dst_slice) {
-        Ok(_) => size,
+    match buffer.read(dst_slice) {
+        Ok(r) => r as libc::c_int,
         Err(e) => {
             eprintln!("read_data {}", e);
             AVERROR_EOF
@@ -268,10 +268,10 @@ mod tests {
     fn test_stream_groups() -> Result<()> {
         unsafe {
             let mut demux =
-                Demuxer::new("/core/[SubsPlease] Kinoko Inu - 06 (1080p) [FECF68AF].mkv")?;
+                Demuxer::new("https://trac.ffmpeg.org/raw-attachment/ticket/11170/IMG_4765.HEIC")?;
             let probe = demux.probe_input()?;
-            assert_eq!(1, probe.streams.len());
-            assert_eq!(1, probe.groups.len());
+            assert_eq!(3, probe.streams.len());
+            assert_eq!(0, probe.groups.len());
             assert!(matches!(
                 probe.groups[0].group_type,
                 StreamGroupType::TileGrid { .. }
