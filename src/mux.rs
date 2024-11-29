@@ -1,11 +1,12 @@
 use crate::{bail_ffmpeg, cstr, set_opts, Encoder, AVIO_BUFFER_SIZE};
 use anyhow::{bail, Result};
 use ffmpeg_sys_the_third::{
-    av_free, av_interleaved_write_frame, av_mallocz, av_packet_rescale_ts, av_write_trailer,
+    av_interleaved_write_frame, av_mallocz, av_packet_rescale_ts, av_write_trailer,
     avcodec_parameters_copy, avcodec_parameters_from_context, avformat_alloc_output_context2,
     avformat_free_context, avformat_new_stream, avformat_write_header, avio_alloc_context,
-    avio_open, AVFormatContext, AVIOContext, AVPacket, AVStream, AVERROR_EOF, AVFMT_GLOBALHEADER,
-    AVFMT_NOFILE, AVIO_FLAG_DIRECT, AVIO_FLAG_WRITE, AV_CODEC_FLAG_GLOBAL_HEADER,
+    avio_close, avio_open, AVFormatContext, AVIOContext, AVPacket, AVStream, AVERROR_EOF,
+    AVFMT_GLOBALHEADER, AVFMT_NOFILE, AVIO_FLAG_DIRECT, AVIO_FLAG_WRITE,
+    AV_CODEC_FLAG_GLOBAL_HEADER,
 };
 use slimbox::{slimbox_unsize, SlimBox, SlimMut};
 use std::collections::HashMap;
@@ -109,6 +110,12 @@ pub struct MuxerBuilder {
     output: MuxerOutput,
     url: Option<String>,
     format: Option<String>,
+}
+
+impl Default for MuxerBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MuxerBuilder {
@@ -282,13 +289,9 @@ impl Muxer {
         MuxerBuilder::add_copy_stream(self.ctx, in_stream)
     }
 
-    /// Initialize the context, usually after it was closed with [Muxer::reset]
+    /// Initialize the context, usually after it was closed with [Muxer::close]
     pub unsafe fn init(&mut self) -> Result<()> {
-        MuxerBuilder::init_ctx(
-            &mut self.ctx,
-            self.url.as_ref().map(|v| v.as_str()),
-            self.format.as_ref().map(|v| v.as_str()),
-        )
+        MuxerBuilder::init_ctx(&mut self.ctx, self.url.as_deref(), self.format.as_deref())
     }
 
     /// Change the muxer URL
@@ -352,11 +355,32 @@ impl Muxer {
 
     /// Close the output and write the trailer
     /// [Muxer::init] can be used to re-init the muxer
-    pub unsafe fn reset(&mut self) -> Result<()> {
+    pub unsafe fn close(&mut self) -> Result<()> {
         let ret = av_write_trailer(self.ctx);
         bail_ffmpeg!(ret);
-        avformat_free_context(self.ctx);
-        self.ctx = ptr::null_mut();
+        self.free_ctx()?;
+        Ok(())
+    }
+
+    unsafe fn free_ctx(&mut self) -> Result<()> {
+        if !self.ctx.is_null() {
+            match self.output {
+                MuxerOutput::Url(_) => {
+                    if !(*self.ctx).pb.is_null() {
+                        let ret = avio_close((*self.ctx).pb);
+                        bail_ffmpeg!(ret);
+                    }
+                }
+                MuxerOutput::WriterSeeker(_) => {
+                    drop(SlimBox::<dyn WriteSeek>::from_raw((*(*self.ctx).pb).opaque));
+                }
+                MuxerOutput::Writer(_) => {
+                    drop(SlimBox::<dyn Write>::from_raw((*(*self.ctx).pb).opaque));
+                }
+            }
+            avformat_free_context(self.ctx);
+            self.ctx = ptr::null_mut();
+        }
         Ok(())
     }
 }
@@ -364,13 +388,7 @@ impl Muxer {
 impl Drop for Muxer {
     fn drop(&mut self) {
         unsafe {
-            if !self.ctx.is_null() {
-                if let MuxerOutput::Writer(_) = self.output {
-                    av_free((*(*self.ctx).pb).buffer as *mut _);
-                    drop(SlimBox::<dyn Read>::from_raw((*(*self.ctx).pb).opaque));
-                }
-                avformat_free_context(self.ctx);
-            }
+            self.free_ctx();
         }
     }
 }
@@ -426,7 +444,7 @@ mod tests {
         for f_pk in encoder.encode_frame(ptr::null_mut())? {
             muxer.write_packet(f_pk)?;
         }
-        muxer.reset()?;
+        muxer.close()?;
         Ok(())
     }
 

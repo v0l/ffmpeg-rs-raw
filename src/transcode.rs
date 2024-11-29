@@ -97,7 +97,7 @@ impl Transcoder {
 
         // flush
         if pkt.is_null() {
-            for (_, enc) in &mut self.encoders {
+            for enc in self.encoders.values_mut() {
                 for mut new_pkt in enc.encode_frame(ptr::null_mut())? {
                     self.muxer.write_packet(new_pkt)?;
                     av_packet_free(&mut new_pkt);
@@ -155,7 +155,7 @@ impl Transcoder {
         while !self.next()? {
             // nothing here
         }
-        self.muxer.reset()?;
+        self.muxer.close()?;
         Ok(())
     }
 }
