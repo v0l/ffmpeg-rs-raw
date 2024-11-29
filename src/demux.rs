@@ -246,11 +246,12 @@ impl Demuxer {
 
 impl Drop for Demuxer {
     fn drop(&mut self) {
-        if !self.ctx.is_null() {
-            unsafe {
+        unsafe {
+            if !self.ctx.is_null() {
                 if let DemuxerInput::Reader(_, _) = self.input {
                     av_free((*(*self.ctx).pb).buffer as *mut _);
                     drop(SlimBox::<dyn Read>::from_raw((*(*self.ctx).pb).opaque));
+                    avio_context_free(&mut (*self.ctx).pb);
                 }
                 avformat_free_context(self.ctx);
             }

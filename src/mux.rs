@@ -1,11 +1,11 @@
 use crate::{bail_ffmpeg, cstr, set_opts, Encoder, AVIO_BUFFER_SIZE};
 use anyhow::{bail, Result};
 use ffmpeg_sys_the_third::{
-    av_interleaved_write_frame, av_mallocz, av_packet_rescale_ts, av_write_trailer,
+    av_free, av_interleaved_write_frame, av_mallocz, av_packet_rescale_ts, av_write_trailer,
     avcodec_parameters_copy, avcodec_parameters_from_context, avformat_alloc_output_context2,
     avformat_free_context, avformat_new_stream, avformat_write_header, avio_alloc_context,
-    avio_close, avio_open, AVFormatContext, AVIOContext, AVPacket, AVStream, AVERROR_EOF,
-    AVFMT_GLOBALHEADER, AVFMT_NOFILE, AVIO_FLAG_DIRECT, AVIO_FLAG_WRITE,
+    avio_close, avio_context_free, avio_open, AVFormatContext, AVIOContext, AVPacket, AVStream,
+    AVERROR_EOF, AVFMT_GLOBALHEADER, AVFMT_NOFILE, AVIO_FLAG_DIRECT, AVIO_FLAG_WRITE,
     AV_CODEC_FLAG_GLOBAL_HEADER,
 };
 use slimbox::{slimbox_unsize, SlimBox, SlimMut};
@@ -372,10 +372,14 @@ impl Muxer {
                     }
                 }
                 MuxerOutput::WriterSeeker(_) => {
+                    av_free((*(*self.ctx).pb).buffer as *mut _);
                     drop(SlimBox::<dyn WriteSeek>::from_raw((*(*self.ctx).pb).opaque));
+                    avio_context_free(&mut (*self.ctx).pb);
                 }
                 MuxerOutput::Writer(_) => {
+                    av_free((*(*self.ctx).pb).buffer as *mut _);
                     drop(SlimBox::<dyn Write>::from_raw((*(*self.ctx).pb).opaque));
+                    avio_context_free(&mut (*self.ctx).pb);
                 }
             }
             avformat_free_context(self.ctx);
