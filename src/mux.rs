@@ -355,6 +355,7 @@ impl Muxer {
     pub unsafe fn reset(&mut self) -> Result<()> {
         let ret = av_write_trailer(self.ctx);
         bail_ffmpeg!(ret);
+        avformat_free_context(self.ctx);
         self.ctx = ptr::null_mut();
         Ok(())
     }
