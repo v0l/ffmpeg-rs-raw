@@ -10,13 +10,17 @@ use ffmpeg_sys_the_third::{
 };
 use slimbox::{slimbox_unsize, SlimBox, SlimMut};
 use std::collections::HashMap;
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{Seek, SeekFrom, Write};
 use std::{ptr, slice};
+
+#[cfg(feature = "ff_api_avio_write_nonconst")]
+type WriteDataPtr = *mut u8;
+#[cfg(not(feature = "ff_api_avio_write_nonconst"))]
+type WriteDataPtr = *const u8;
 
 unsafe extern "C" fn write_data<T>(
     opaque: *mut libc::c_void,
-    #[cfg(feature = "avformat_version_greater_than_60_12")] buffer: *const u8,
-    #[cfg(not(feature = "avformat_version_greater_than_60_12"))] buffer: *mut u8,
+    buffer: WriteDataPtr,
     size: libc::c_int,
 ) -> libc::c_int
 where
@@ -392,7 +396,7 @@ impl Muxer {
 impl Drop for Muxer {
     fn drop(&mut self) {
         unsafe {
-            self.free_ctx();
+            self.free_ctx().expect("drop muxer");
         }
     }
 }
