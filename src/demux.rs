@@ -221,6 +221,8 @@ impl Demuxer {
         let info = DemuxerInfo {
             duration: (*self.ctx).duration as f32 / AV_TIME_BASE as f32,
             bitrate: (*self.ctx).bit_rate as usize,
+            format: rstr!((*(*self.ctx).iformat).name).to_string(),
+            mime_types: rstr!((*(*self.ctx).iformat).mime_type).to_string(),
             streams,
             #[cfg(feature = "avformat_version_greater_than_60_19")]
             groups: stream_groups,

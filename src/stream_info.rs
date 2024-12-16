@@ -10,8 +10,15 @@ use std::intrinsics::transmute;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct DemuxerInfo {
+    /// Average bitrate of the media
     pub bitrate: usize,
+    /// Duration of the media in seconds
     pub duration: f32,
+    /// Comma separated list of formats supported by the demuxer
+    pub format: String,
+    /// Comma separated list of mime-types used during probing
+    pub mime_types: String,
+    /// List of streams contained in the media
     pub streams: Vec<StreamInfo>,
     #[cfg(feature = "avformat_version_greater_than_60_19")]
     pub groups: Vec<StreamGroupInfo>,

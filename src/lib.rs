@@ -52,6 +52,7 @@ macro_rules! bail_ffmpeg {
 #[macro_export]
 macro_rules! cstr {
     ($str:expr) => {
+        // TODO: leaky
         std::ffi::CString::new($str).unwrap().into_raw()
     };
 }

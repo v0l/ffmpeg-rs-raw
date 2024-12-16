@@ -172,6 +172,7 @@ mod tests {
                 "test_output/test_transcode.mkv",
             )?;
             let info = transcoder.prepare()?;
+            assert!(!info.format.is_empty());
             for c in info.streams {
                 transcoder.copy_stream(c)?;
             }
