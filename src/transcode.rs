@@ -33,6 +33,19 @@ impl Transcoder {
         })
     }
 
+    /// Create a new transcoder from both a muxer and a demuxer
+    pub unsafe fn new_custom_io(demuxer: Demuxer, muxer: Muxer) -> Self {
+        Self {
+            demuxer,
+            decoder: Decoder::new(),
+            scalers: HashMap::new(),
+            resampler: HashMap::new(),
+            encoders: HashMap::new(),
+            copy_stream: HashMap::new(),
+            muxer,
+        }
+    }
+
     /// Prepare the transcoder by probing the input
     pub unsafe fn prepare(&mut self) -> Result<DemuxerInfo> {
         self.demuxer.probe_input()
