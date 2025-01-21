@@ -31,7 +31,7 @@ unsafe extern "C" fn read_data(
 
 pub enum DemuxerInput {
     Url(String),
-    Reader(Option<SlimBox<dyn Read + 'static>>, Option<String>),
+    Reader(Option<SlimBox<dyn Read>>, Option<String>),
 }
 
 pub struct Demuxer {

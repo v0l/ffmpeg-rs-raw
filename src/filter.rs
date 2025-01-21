@@ -107,7 +107,7 @@ impl Filter {
         Ok(())
     }
 
-    pub unsafe fn process_frame(&mut self, frame: *mut AVFrame) -> Result<*mut AVFrame, Error> {
+    pub unsafe fn process_frame(&mut self, _frame: *mut AVFrame) -> Result<*mut AVFrame, Error> {
         todo!();
     }
 }

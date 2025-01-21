@@ -121,7 +121,7 @@ impl Transcoder {
             let src_index = (*stream).index;
             // check if encoded stream
             if let Some(enc) = self.encoders.get_mut(&src_index) {
-                for mut frame in self.decoder.decode_pkt(pkt)? {
+                for (mut frame, _stream) in self.decoder.decode_pkt(pkt)? {
                     // scale video frame before sending to encoder
                     let frame = if let Some(sws) = self.scalers.get_mut(&src_index) {
                         let enc_ctx = enc.codec_context();

@@ -237,25 +237,25 @@ impl Decoder {
     }
 
     /// Flush all decoders
-    pub unsafe fn flush(&mut self) -> Result<Vec<*mut AVFrame>, Error> {
+    pub unsafe fn flush(&mut self) -> Result<Vec<(*mut AVFrame, *mut AVStream)>, Error> {
         let mut pkgs = Vec::new();
         for ctx in self.codecs.values_mut() {
-            pkgs.extend(Self::decode_pkt_internal(ctx.context, ptr::null_mut())?);
+            pkgs.extend(Self::decode_pkt_internal(ctx, ptr::null_mut())?);
         }
         Ok(pkgs)
     }
 
     pub unsafe fn decode_pkt_internal(
-        ctx: *mut AVCodecContext,
+        ctx: &DecoderCodecContext,
         pkt: *mut AVPacket,
-    ) -> Result<Vec<*mut AVFrame>, Error> {
-        let mut ret = avcodec_send_packet(ctx, pkt);
+    ) -> Result<Vec<(*mut AVFrame, *mut AVStream)>, Error> {
+        let mut ret = avcodec_send_packet(ctx.context, pkt);
         bail_ffmpeg!(ret, "Failed to decode packet");
 
         let mut pkgs = Vec::new();
         while ret >= 0 {
             let mut frame = av_frame_alloc();
-            ret = avcodec_receive_frame(ctx, frame);
+            ret = avcodec_receive_frame(ctx.context, frame);
             if ret < 0 {
                 av_frame_free(&mut frame);
                 if ret == AVERROR_EOF || ret == AVERROR(libc::EAGAIN) {
@@ -263,17 +263,20 @@ impl Decoder {
                 }
                 return Err(Error::msg(format!("Failed to decode {}", ret)));
             }
-            pkgs.push(frame);
+            pkgs.push((frame, ctx.stream));
         }
         Ok(pkgs)
     }
 
-    pub unsafe fn decode_pkt(&mut self, pkt: *mut AVPacket) -> Result<Vec<*mut AVFrame>, Error> {
+    pub unsafe fn decode_pkt(
+        &mut self,
+        pkt: *mut AVPacket,
+    ) -> Result<Vec<(*mut AVFrame, *mut AVStream)>, Error> {
         if pkt.is_null() {
             return self.flush();
         }
         if let Some(ctx) = self.codecs.get_mut(&(*pkt).stream_index) {
-            Self::decode_pkt_internal(ctx.context, pkt)
+            Self::decode_pkt_internal(ctx, pkt)
         } else {
             Ok(vec![])
         }

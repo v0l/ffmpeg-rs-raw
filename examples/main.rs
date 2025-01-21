@@ -67,7 +67,7 @@ unsafe fn loop_decoder(mut demuxer: Demuxer, mut decoder: Decoder) {
             continue;
         }
         if let Ok(frames) = decoder.decode_pkt(pkt) {
-            for mut frame in frames {
+            for (mut frame, _stream) in frames {
                 // do nothing but decode entire stream
                 if media_type == AVMediaType::AVMEDIA_TYPE_VIDEO {
                     frame = get_frame_from_hw(frame).expect("get frame failed");
