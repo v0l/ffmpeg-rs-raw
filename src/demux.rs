@@ -250,14 +250,15 @@ impl Drop for Demuxer {
     fn drop(&mut self) {
         unsafe {
             if !self.ctx.is_null() {
-                if let DemuxerInput::Reader(_, _) = self.input {
-                    av_free((*(*self.ctx).pb).buffer as *mut _);
-                    drop(SlimBox::<dyn Read>::from_raw((*(*self.ctx).pb).opaque));
+                match self.input {
+                    DemuxerInput::Reader(_, _) => {
+                        av_free((*(*self.ctx).pb).buffer as *mut _);
+                        drop(SlimBox::<dyn Read>::from_raw((*(*self.ctx).pb).opaque));
+                        avio_context_free(&mut (*self.ctx).pb);
+                    }
+                    _ => {}
                 }
-                if !(*self.ctx).pb.is_null() {
-                    avio_context_free(&mut (*self.ctx).pb);
-                }
-                avformat_free_context(self.ctx);
+                avformat_close_input(&mut self.ctx);
             }
         }
     }
@@ -281,6 +282,23 @@ mod tests {
                 probe.groups[0].group_type,
                 StreamGroupType::TileGrid { .. }
             ));
+        }
+        Ok(())
+    }
+
+    /// Test for leaking file handles
+    #[test]
+    fn probe_lots() -> Result<()> {
+        rlimit::setrlimit(rlimit::Resource::NOFILE, 64, 128)?;
+
+        let nof_limit = rlimit::Resource::NOFILE.get_hard()?;
+        for n in 0..nof_limit {
+            let mut demux = Demuxer::new("./test_output/test.png")?;
+            unsafe {
+                if let Err(e) = demux.probe_input() {
+                    bail!("Failed on {}: {}", n, e);
+                }
+            }
         }
         Ok(())
     }
