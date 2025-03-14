@@ -81,9 +81,9 @@ pub unsafe fn get_frame_duration(frame: *mut AVFrame) -> i64 {
     compile_error!("no frame duration support");
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "aarch64")))]
 type VaList = ffmpeg_sys_the_third::va_list;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_arch = "aarch64")))]
 type VaList = *mut ffmpeg_sys_the_third::__va_list_tag;
 #[cfg(target_os = "android")]
 type VaList = [u64; 4];
