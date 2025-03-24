@@ -5,7 +5,7 @@ use crate::{bail_ffmpeg, rstr};
 use anyhow::{bail, Error};
 use ffmpeg_sys_the_third::{
     av_frame_alloc, av_frame_copy_props, av_frame_free, av_get_pix_fmt_name, sws_freeContext,
-    sws_getContext, sws_scale_frame, AVFrame, AVPixelFormat, SwsContext, SWS_BILINEAR,
+    sws_getContext, sws_scale_frame, AVFrame, AVPixelFormat, SwsContext,
 };
 use log::trace;
 
@@ -70,7 +70,7 @@ impl Scaler {
             width as libc::c_int,
             height as libc::c_int,
             transmute(format),
-            SWS_BILINEAR,
+            transmute(ffmpeg_sys_the_third::SwsFlags::SWS_BILINEAR),
             ptr::null_mut(),
             ptr::null_mut(),
             ptr::null_mut(),
