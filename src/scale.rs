@@ -70,7 +70,7 @@ impl Scaler {
             width as libc::c_int,
             height as libc::c_int,
             transmute(format),
-            transmute(ffmpeg_sys_the_third::SwsFlags::SWS_BILINEAR),
+            2, // SWS_BILINEAR
             ptr::null_mut(),
             ptr::null_mut(),
             ptr::null_mut(),
