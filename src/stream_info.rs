@@ -133,6 +133,8 @@ pub struct StreamInfo {
     pub sample_rate: usize,
     /// Subtitle / Audio language
     pub language: String,
+    /// Number of audio channels
+    pub channels: u8,
 
     // private stream pointer
     pub(crate) stream: *mut AVStream,

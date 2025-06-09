@@ -78,16 +78,16 @@ mod tests {
     #[test]
     fn test_buffer() -> Result<()> {
         unsafe {
-            let mut buf = AudioFifo::new(AVSampleFormat::AV_SAMPLE_FMT_S16, 2)?;
+            let mut buf = AudioFifo::new(AVSampleFormat::AV_SAMPLE_FMT_FLTP, 2)?;
 
-            let mut enc = Encoder::new_with_name("libfdk_aac")?
-                .with_sample_format(AVSampleFormat::AV_SAMPLE_FMT_S16)
+            let mut enc = Encoder::new_with_name("aac")?
+                .with_sample_format(AVSampleFormat::AV_SAMPLE_FMT_FLTP)
                 .with_sample_rate(48_000)?
                 .with_default_channel_layout(2)
                 .open(None)?;
 
             let mut demo_frame = av_frame_alloc();
-            (*demo_frame).format = AVSampleFormat::AV_SAMPLE_FMT_S16 as _;
+            (*demo_frame).format = AVSampleFormat::AV_SAMPLE_FMT_FLTP as _;
             (*demo_frame).ch_layout = AVChannelLayout::empty();
             av_channel_layout_default(&mut (*demo_frame).ch_layout, 2);
             (*demo_frame).nb_samples = 2048;

@@ -107,7 +107,7 @@ impl Demuxer {
                 let ret = avformat_open_input(
                     &mut self.ctx,
                     if let Some(url) = url {
-                        cstr!(url.as_str())
+                        cstr!(url.as_str()) as _
                     } else {
                         ptr::null_mut()
                     },
@@ -173,42 +173,45 @@ impl Demuxer {
                 AVMediaType::AVMEDIA_TYPE_VIDEO => {
                     streams.push(StreamInfo {
                         stream,
-                        index: (*stream).index as usize,
-                        codec: (*(*stream).codecpar).codec_id as isize,
+                        index: (*stream).index as _,
+                        codec: (*(*stream).codecpar).codec_id as _,
                         stream_type: StreamType::Video,
-                        width: (*(*stream).codecpar).width as usize,
-                        height: (*(*stream).codecpar).height as usize,
-                        fps: av_q2d((*stream).avg_frame_rate) as f32,
-                        format: (*(*stream).codecpar).format as isize,
+                        width: (*(*stream).codecpar).width as _,
+                        height: (*(*stream).codecpar).height as _,
+                        fps: av_q2d((*stream).avg_frame_rate) as _,
+                        format: (*(*stream).codecpar).format as _,
                         sample_rate: 0,
+                        channels: 0,
                         language,
                     });
                 }
                 AVMediaType::AVMEDIA_TYPE_AUDIO => {
                     streams.push(StreamInfo {
                         stream,
-                        index: (*stream).index as usize,
-                        codec: (*(*stream).codecpar).codec_id as isize,
+                        index: (*stream).index as _,
+                        codec: (*(*stream).codecpar).codec_id as _,
                         stream_type: StreamType::Audio,
-                        width: (*(*stream).codecpar).width as usize,
-                        height: (*(*stream).codecpar).height as usize,
+                        width: (*(*stream).codecpar).width as _,
+                        height: (*(*stream).codecpar).height as _,
                         fps: 0.0,
-                        format: (*(*stream).codecpar).format as isize,
-                        sample_rate: (*(*stream).codecpar).sample_rate as usize,
+                        format: (*(*stream).codecpar).format as _,
+                        sample_rate: (*(*stream).codecpar).sample_rate as _,
+                        channels: (*(*stream).codecpar).ch_layout.nb_channels as _,
                         language,
                     });
                 }
                 AVMediaType::AVMEDIA_TYPE_SUBTITLE => {
                     streams.push(StreamInfo {
                         stream,
-                        index: (*stream).index as usize,
-                        codec: (*(*stream).codecpar).codec_id as isize,
+                        index: (*stream).index as _,
+                        codec: (*(*stream).codecpar).codec_id as _,
                         stream_type: StreamType::Subtitle,
                         width: 0,
                         height: 0,
                         fps: 0.0,
                         format: 0,
                         sample_rate: 0,
+                        channels: 0,
                         language,
                     });
                 }
