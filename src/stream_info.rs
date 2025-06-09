@@ -128,6 +128,8 @@ pub struct StreamInfo {
     pub height: usize,
     /// Video FPS
     pub fps: f32,
+    /// Start time offset
+    pub start_time: f32,
 
     /// Audio sample rate
     pub sample_rate: usize,

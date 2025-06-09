@@ -169,6 +169,7 @@ impl Demuxer {
             } else {
                 rstr!((*lang).value).to_string()
             };
+            let q = av_q2d((*stream).time_base);
             match (*(*stream).codecpar).codec_type {
                 AVMediaType::AVMEDIA_TYPE_VIDEO => {
                     streams.push(StreamInfo {
@@ -182,6 +183,7 @@ impl Demuxer {
                         format: (*(*stream).codecpar).format as _,
                         sample_rate: 0,
                         channels: 0,
+                        start_time: ((*stream).start_time as f64 * q) as f32,
                         language,
                     });
                 }
@@ -197,6 +199,7 @@ impl Demuxer {
                         format: (*(*stream).codecpar).format as _,
                         sample_rate: (*(*stream).codecpar).sample_rate as _,
                         channels: (*(*stream).codecpar).ch_layout.nb_channels as _,
+                        start_time: ((*stream).start_time as f64 * q) as f32,
                         language,
                     });
                 }
@@ -212,6 +215,7 @@ impl Demuxer {
                         format: 0,
                         sample_rate: 0,
                         channels: 0,
+                        start_time: ((*stream).start_time as f64 * q) as f32,
                         language,
                     });
                 }
