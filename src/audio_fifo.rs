@@ -2,12 +2,14 @@ use crate::bail_ffmpeg;
 use anyhow::{bail, Result};
 use ffmpeg_sys_the_third::{
     av_audio_fifo_alloc, av_audio_fifo_read, av_audio_fifo_realloc, av_audio_fifo_size,
-    av_audio_fifo_write, av_channel_layout_copy, av_frame_alloc, av_frame_free,
+    av_audio_fifo_write, av_channel_layout_default, av_frame_alloc, av_frame_free,
     av_frame_get_buffer, AVAudioFifo, AVFrame, AVSampleFormat,
 };
 
 pub struct AudioFifo {
     ctx: *mut AVAudioFifo,
+    format: AVSampleFormat,
+    channels: u16,
     pts: i64,
 }
 
@@ -17,7 +19,12 @@ impl AudioFifo {
         if ctx.is_null() {
             bail!("Could not allocate audio fifo");
         }
-        Ok(Self { ctx, pts: 0 })
+        Ok(Self {
+            ctx,
+            format,
+            channels,
+            pts: 0,
+        })
     }
 
     /// Buffer a resampled frame, and get a frame from the buffer with the desired size
@@ -38,14 +45,18 @@ impl AudioFifo {
         ret = av_audio_fifo_write(self.ctx, buf_ptr, (*frame).nb_samples);
         bail_ffmpeg!(ret);
 
+        self.get_frame(samples_out)
+    }
+
+    /// Get a frame from the buffer if there is enough data
+    pub unsafe fn get_frame(&mut self, samples_out: usize) -> Result<Option<*mut AVFrame>> {
         if av_audio_fifo_size(self.ctx) >= samples_out as _ {
             let mut out_frame = av_frame_alloc();
             (*out_frame).nb_samples = samples_out as _;
-            (*out_frame).format = (*frame).format as _;
-            ret = av_channel_layout_copy(&mut (*out_frame).ch_layout, &(*frame).ch_layout);
-            bail_ffmpeg!(ret, { av_frame_free(&mut out_frame) });
+            (*out_frame).format = self.format as _;
+            av_channel_layout_default(&mut (*out_frame).ch_layout, self.channels as _);
 
-            ret = av_frame_get_buffer(out_frame, 0);
+            let ret = av_frame_get_buffer(out_frame, 0);
             bail_ffmpeg!(ret, { av_frame_free(&mut out_frame) });
 
             #[cfg(feature = "avutil_version_greater_than_58_22")]
