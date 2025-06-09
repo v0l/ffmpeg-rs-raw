@@ -3,7 +3,7 @@ use anyhow::{bail, Result};
 use ffmpeg_sys_the_third::{
     av_audio_fifo_alloc, av_audio_fifo_read, av_audio_fifo_realloc, av_audio_fifo_size,
     av_audio_fifo_write, av_channel_layout_default, av_frame_alloc, av_frame_free,
-    av_frame_get_buffer, AVAudioFifo, AVFrame, AVSampleFormat,
+    av_frame_get_buffer, AVAudioFifo, AVFrame, AVSampleFormat, AV_NOPTS_VALUE,
 };
 
 pub struct AudioFifo {
@@ -23,7 +23,7 @@ impl AudioFifo {
             ctx,
             format,
             channels,
-            pts: 0,
+            pts: AV_NOPTS_VALUE,
         })
     }
 
@@ -40,6 +40,11 @@ impl AudioFifo {
 
         ret = av_audio_fifo_write(self.ctx, buf_ptr, (*frame).nb_samples);
         bail_ffmpeg!(ret);
+
+        // set pts if uninitialized
+        if self.pts == AV_NOPTS_VALUE {
+            self.pts = (*frame).pts;
+        }
         Ok(())
     }
 
