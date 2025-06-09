@@ -27,12 +27,8 @@ impl AudioFifo {
         })
     }
 
-    /// Buffer a resampled frame, and get a frame from the buffer with the desired size
-    pub unsafe fn buffer_frame(
-        &mut self,
-        frame: *mut AVFrame,
-        samples_out: usize,
-    ) -> Result<Option<*mut AVFrame>> {
+    /// Buffer a frame
+    pub unsafe fn buffer_frame(&mut self, frame: *mut AVFrame) -> Result<()> {
         let mut ret =
             av_audio_fifo_realloc(self.ctx, av_audio_fifo_size(self.ctx) + (*frame).nb_samples);
         bail_ffmpeg!(ret);
@@ -44,8 +40,7 @@ impl AudioFifo {
 
         ret = av_audio_fifo_write(self.ctx, buf_ptr, (*frame).nb_samples);
         bail_ffmpeg!(ret);
-
-        self.get_frame(samples_out)
+        Ok(())
     }
 
     /// Get a frame from the buffer if there is enough data
@@ -105,9 +100,8 @@ mod tests {
             av_frame_get_buffer(demo_frame, 0);
 
             let dst_nb_samples = (*enc.codec_context()).frame_size;
-            let mut out_frame = buf
-                .buffer_frame(demo_frame, dst_nb_samples as usize)?
-                .unwrap();
+            buf.buffer_frame(demo_frame)?;
+            let mut out_frame = buf.get_frame(dst_nb_samples as usize)?.unwrap();
             for mut pkt in enc.encode_frame(out_frame)? {
                 av_packet_free(&mut pkt);
             }
