@@ -242,10 +242,21 @@ impl Demuxer {
         }
         bail_ffmpeg!(ret);
 
-        let stream = *(*self.ctx).streams.add((*pkt).stream_index as usize);
+        let stream = self.get_stream((*pkt).stream_index as _)?;
         (*pkt).time_base = (*stream).time_base;
         let pkg = (pkt, stream);
         Ok(pkg)
+    }
+
+    /// Get stream by index from context
+    pub unsafe fn get_stream(&mut self, index: usize) -> Result<*mut AVStream, Error> {
+        if self.ctx.is_null() {
+            bail!("context is null")
+        }
+        if index >= (*self.ctx).nb_streams as _ {
+            bail!("Invalid stream index")
+        }
+        Ok(*(*self.ctx).streams.add(index))
     }
 }
 
