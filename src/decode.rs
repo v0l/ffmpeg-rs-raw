@@ -10,16 +10,16 @@ use ffmpeg_sys_the_third::{
     av_hwdevice_get_type_name, av_hwdevice_iterate_types, avcodec_alloc_context3,
     avcodec_find_decoder, avcodec_free_context, avcodec_get_hw_config, avcodec_get_name,
     avcodec_open2, avcodec_parameters_to_context, avcodec_receive_frame, avcodec_send_packet,
-    AVCodec, AVCodecContext, AVCodecHWConfig, AVFrame, AVHWDeviceType, AVPacket, AVStream, AVERROR,
-    AVERROR_EOF, AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX,
+    AVCodec, AVCodecContext, AVCodecHWConfig, AVCodecID, AVFrame, AVHWDeviceType, AVPacket,
+    AVStream, AVERROR, AVERROR_EOF, AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX,
 };
 use log::trace;
 
 pub struct DecoderCodecContext {
     pub context: *mut AVCodecContext,
     pub codec: *const AVCodec,
-    pub stream: *mut AVStream,
     pub hw_config: *const AVCodecHWConfig,
+    pub stream_index: i32,
 }
 
 impl DecoderCodecContext {
@@ -59,7 +59,7 @@ impl Display for DecoderCodecContext {
         write!(
             f,
             "stream={}, codec={}",
-            unsafe { (*self.stream).index },
+            self.stream_index,
             self.codec_name()
         )
     }
@@ -166,12 +166,25 @@ impl Decoder {
             "Codec parameters are missing from stream"
         );
 
-        if let Entry::Vacant(e) = self.codecs.entry((*stream).index) {
-            let codec = avcodec_find_decoder((*codec_par).codec_id);
+        let ctx = self.setup_decoder_codec((*codec_par).codec_id, (*stream).index, options)?;
+        let ret = avcodec_parameters_to_context(ctx.context, (*stream).codecpar);
+        bail_ffmpeg!(ret, "Failed to copy codec parameters to context");
+        Ok(ctx)
+    }
+
+    /// Configure a decoder manually
+    pub unsafe fn setup_decoder_codec(
+        &mut self,
+        codec_id: AVCodecID,
+        stream_index: i32,
+        options: Option<HashMap<String, String>>,
+    ) -> Result<&mut DecoderCodecContext, Error> {
+        if let Entry::Vacant(e) = self.codecs.entry(stream_index) {
+            let codec = avcodec_find_decoder(codec_id);
             if codec.is_null() {
                 anyhow::bail!(
                     "Failed to find codec: {}",
-                    rstr!(avcodec_get_name((*codec_par).codec_id))
+                    rstr!(avcodec_get_name(codec_id))
                 )
             }
             let context = avcodec_alloc_context3(codec);
@@ -179,9 +192,7 @@ impl Decoder {
                 anyhow::bail!("Failed to alloc context")
             }
 
-            let mut ret = avcodec_parameters_to_context(context, (*stream).codecpar);
-            bail_ffmpeg!(ret, "Failed to copy codec parameters to context");
-
+            let mut ret = 0;
             let codec_name = rstr!(avcodec_get_name((*codec).id));
             // try use HW decoder
             let mut hw_config = ptr::null();
@@ -226,8 +237,8 @@ impl Decoder {
             let ctx = DecoderCodecContext {
                 context,
                 codec,
-                stream,
                 hw_config,
+                stream_index,
             };
             trace!("setup decoder={}", ctx);
             Ok(e.insert(ctx))
@@ -237,7 +248,7 @@ impl Decoder {
     }
 
     /// Flush all decoders
-    pub unsafe fn flush(&mut self) -> Result<Vec<(*mut AVFrame, *mut AVStream)>, Error> {
+    pub unsafe fn flush(&mut self) -> Result<Vec<(*mut AVFrame, i32)>, Error> {
         let mut pkgs = Vec::new();
         for ctx in self.codecs.values_mut() {
             pkgs.extend(Self::decode_pkt_internal(ctx, ptr::null_mut())?);
@@ -248,7 +259,7 @@ impl Decoder {
     pub unsafe fn decode_pkt_internal(
         ctx: &DecoderCodecContext,
         pkt: *mut AVPacket,
-    ) -> Result<Vec<(*mut AVFrame, *mut AVStream)>, Error> {
+    ) -> Result<Vec<(*mut AVFrame, i32)>, Error> {
         let mut ret = avcodec_send_packet(ctx.context, pkt);
         bail_ffmpeg!(ret, "Failed to decode packet");
 
@@ -263,7 +274,7 @@ impl Decoder {
                 }
                 return Err(Error::msg(format!("Failed to decode {}", ret)));
             }
-            pkgs.push((frame, ctx.stream));
+            pkgs.push((frame, ctx.stream_index));
         }
         Ok(pkgs)
     }
@@ -271,7 +282,7 @@ impl Decoder {
     pub unsafe fn decode_pkt(
         &mut self,
         pkt: *mut AVPacket,
-    ) -> Result<Vec<(*mut AVFrame, *mut AVStream)>, Error> {
+    ) -> Result<Vec<(*mut AVFrame, i32)>, Error> {
         if pkt.is_null() {
             return self.flush();
         }
