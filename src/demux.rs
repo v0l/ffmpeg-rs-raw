@@ -58,8 +58,13 @@ impl Demuxer {
 
     /// Configure the buffer size for custom_io
     pub fn with_buffer_size(mut self, buffer_size: usize) -> Self {
-        self.buffer_size = buffer_size;
+        self.set_buffer_size(buffer_size);
         self
+    }
+
+    /// Configure the buffer size for custom_io
+    pub fn set_buffer_size(&mut self, buffer_size: usize) {
+        self.buffer_size = buffer_size;
     }
 
     /// Create a new [Demuxer] from an object that implements [Read]
