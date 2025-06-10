@@ -79,9 +79,11 @@ impl Display for DemuxerInfo {
 
         write!(
             f,
-            "Demuxer Info: duration={}, bitrate={}",
+            "Demuxer Info: duration={}, bitrate={}, format={}, mime={}",
             format_time(self.duration),
-            bitrate_str
+            bitrate_str,
+            self.format,
+            self.mime_types
         )?;
         for c in &self.streams {
             write!(f, "\n  {}", c)?;
