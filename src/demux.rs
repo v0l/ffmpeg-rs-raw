@@ -37,6 +37,7 @@ pub enum DemuxerInput {
 pub struct Demuxer {
     ctx: *mut AVFormatContext,
     input: DemuxerInput,
+    buffer_size: usize,
 }
 
 impl Demuxer {
@@ -50,8 +51,15 @@ impl Demuxer {
             Ok(Self {
                 ctx,
                 input: DemuxerInput::Url(input.to_string()),
+                buffer_size: 1024 * 16,
             })
         }
+    }
+
+    /// Configure the buffer size for custom_io
+    pub fn with_buffer_size(mut self, buffer_size: usize) -> Self {
+        self.buffer_size = buffer_size;
+        self
     }
 
     /// Create a new [Demuxer] from an object that implements [Read]
@@ -66,6 +74,7 @@ impl Demuxer {
             Ok(Self {
                 ctx,
                 input: DemuxerInput::Reader(Some(slimbox_unsize!(reader)), url),
+                buffer_size: 1024 * 16,
             })
         }
     }
@@ -89,10 +98,9 @@ impl Demuxer {
             }
             DemuxerInput::Reader(input, url) => {
                 let input = input.take().expect("input stream already taken");
-                const BUFFER_SIZE: usize = 4096;
                 let pb = avio_alloc_context(
-                    av_mallocz(BUFFER_SIZE) as *mut libc::c_uchar,
-                    BUFFER_SIZE as libc::c_int,
+                    av_mallocz(self.buffer_size) as *mut _,
+                    self.buffer_size as _,
                     0,
                     input.into_raw(),
                     Some(read_data),
