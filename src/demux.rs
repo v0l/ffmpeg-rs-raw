@@ -51,7 +51,7 @@ impl Demuxer {
             Ok(Self {
                 ctx,
                 input: DemuxerInput::Url(input.to_string()),
-                buffer_size: 1024 * 16,
+                buffer_size: 4096,
             })
         }
     }
@@ -92,12 +92,14 @@ impl Demuxer {
     unsafe fn open(&mut self) -> Result<()> {
         match &mut self.input {
             DemuxerInput::Url(input) => {
+                let input_cstr = cstr!(input.as_str());
                 let ret = avformat_open_input(
                     &mut self.ctx,
-                    cstr!(input.as_str()),
+                    input_cstr,
                     ptr::null_mut(),
                     ptr::null_mut(),
                 );
+                libc::free(input_cstr as *mut libc::c_void);
                 bail_ffmpeg!(ret);
                 Ok(())
             }
@@ -117,16 +119,20 @@ impl Demuxer {
                 }
 
                 (*self.ctx).pb = pb;
+                let url_cstr = if let Some(url) = url {
+                    cstr!(url.as_str())
+                } else {
+                    ptr::null_mut()
+                };
                 let ret = avformat_open_input(
                     &mut self.ctx,
-                    if let Some(url) = url {
-                        cstr!(url.as_str()) as _
-                    } else {
-                        ptr::null_mut()
-                    },
+                    url_cstr,
                     ptr::null_mut(),
                     ptr::null_mut(),
                 );
+                if !url_cstr.is_null() {
+                    libc::free(url_cstr as *mut libc::c_void);
+                }
                 bail_ffmpeg!(ret);
                 Ok(())
             }
@@ -176,7 +182,9 @@ impl Demuxer {
         while n_stream < (*self.ctx).nb_streams as usize {
             let stream = *(*self.ctx).streams.add(n_stream);
             n_stream += 1;
-            let lang = av_dict_get((*stream).metadata, cstr!("language"), ptr::null_mut(), 0);
+            let lang_key = cstr!("language");
+            let lang = av_dict_get((*stream).metadata, lang_key, ptr::null_mut(), 0);
+            libc::free(lang_key as *mut libc::c_void);
             let language = if lang.is_null() {
                 "".to_string()
             } else {
@@ -261,8 +269,7 @@ impl Demuxer {
 
         let stream = self.get_stream((*pkt).stream_index as _)?;
         (*pkt).time_base = (*stream).time_base;
-        let pkg = (pkt, stream);
-        Ok(pkg)
+        Ok((pkt, stream))
     }
 
     /// Get stream by index from context
@@ -301,7 +308,6 @@ mod tests {
 
     #[cfg(feature = "avformat_version_greater_than_60_19")]
     #[test]
-    #[ignore]
     fn test_stream_groups() -> Result<()> {
         unsafe {
             let mut demux =

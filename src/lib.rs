@@ -52,7 +52,6 @@ macro_rules! bail_ffmpeg {
 #[macro_export]
 macro_rules! cstr {
     ($str:expr) => {
-        // TODO: leaky
         std::ffi::CString::new($str).unwrap().into_raw()
     };
 }
@@ -132,7 +131,11 @@ fn get_ffmpeg_error_msg(ret: libc::c_int) -> String {
 unsafe fn options_to_dict(options: HashMap<String, String>) -> Result<*mut AVDictionary, Error> {
     let mut dict = ptr::null_mut();
     for (key, value) in options {
-        let ret = av_dict_set(&mut dict, cstr!(key), cstr!(value), 0);
+        let key_cstr = cstr!(key);
+        let value_cstr = cstr!(value);
+        let ret = av_dict_set(&mut dict, key_cstr, value_cstr, 0);
+        libc::free(key_cstr as *mut libc::c_void);
+        libc::free(value_cstr as *mut libc::c_void);
         bail_ffmpeg!(ret);
     }
     Ok(dict)
@@ -181,7 +184,11 @@ fn list_opts(ctx: *mut libc::c_void) -> Result<Vec<String>, Error> {
 fn set_opts(ctx: *mut libc::c_void, options: HashMap<String, String>) -> Result<(), Error> {
     unsafe {
         for (key, value) in options {
-            let ret = av_opt_set(ctx, cstr!(key), cstr!(value), AV_OPT_SEARCH_CHILDREN);
+            let key_cstr = cstr!(key);
+            let value_cstr = cstr!(value);
+            let ret = av_opt_set(ctx, key_cstr, value_cstr, AV_OPT_SEARCH_CHILDREN);
+            libc::free(key_cstr as *mut libc::c_void);
+            libc::free(value_cstr as *mut libc::c_void);
             bail_ffmpeg!(ret);
         }
     }
