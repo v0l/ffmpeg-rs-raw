@@ -38,6 +38,7 @@ pub struct Demuxer {
     ctx: *mut AVFormatContext,
     input: DemuxerInput,
     buffer_size: usize,
+    format: Option<String>,
 }
 
 impl Demuxer {
@@ -52,6 +53,7 @@ impl Demuxer {
                 ctx,
                 input: DemuxerInput::Url(input.to_string()),
                 buffer_size: 4096,
+                format: None,
             })
         }
     }
@@ -67,6 +69,17 @@ impl Demuxer {
         self.buffer_size = buffer_size;
     }
 
+    /// Configure format hints for demuxer
+    pub fn with_format(mut self, format: &str) -> Self {
+        self.format = Some(format.to_string());
+        self
+    }
+
+    /// Configure format hints for demuxer
+    pub fn set_format(&mut self, format: &str) {
+        self.format = Some(format.to_string());
+    }
+
     /// Create a new [Demuxer] from an object that implements [Read]
     pub fn new_custom_io<R: Read + 'static>(reader: R, url: Option<String>) -> Result<Self> {
         unsafe {
@@ -80,6 +93,7 @@ impl Demuxer {
                 ctx,
                 input: DemuxerInput::Reader(Some(slimbox_unsize!(reader)), url),
                 buffer_size: 1024 * 16,
+                format: None,
             })
         }
     }
@@ -90,15 +104,22 @@ impl Demuxer {
     }
 
     unsafe fn open(&mut self) -> Result<()> {
+        let format = if let Some(f) = &self.format {
+            let fmt_str = cstr!(f.as_str());
+            let ret = av_find_input_format(fmt_str);
+            libc::free(fmt_str as *mut libc::c_void);
+            if ret.is_null() {
+                bail!("Input format {} not found", f);
+            }
+            ret
+        } else {
+            ptr::null()
+        };
+
         match &mut self.input {
             DemuxerInput::Url(input) => {
                 let input_cstr = cstr!(input.as_str());
-                let ret = avformat_open_input(
-                    &mut self.ctx,
-                    input_cstr,
-                    ptr::null_mut(),
-                    ptr::null_mut(),
-                );
+                let ret = avformat_open_input(&mut self.ctx, input_cstr, format, ptr::null_mut());
                 libc::free(input_cstr as *mut libc::c_void);
                 bail_ffmpeg!(ret);
                 Ok(())
@@ -124,12 +145,7 @@ impl Demuxer {
                 } else {
                     ptr::null_mut()
                 };
-                let ret = avformat_open_input(
-                    &mut self.ctx,
-                    url_cstr,
-                    ptr::null_mut(),
-                    ptr::null_mut(),
-                );
+                let ret = avformat_open_input(&mut self.ctx, url_cstr, format, ptr::null_mut());
                 if !url_cstr.is_null() {
                     libc::free(url_cstr as *mut libc::c_void);
                 }
@@ -331,6 +347,7 @@ mod tests {
         let nof_limit = rlimit::Resource::NOFILE.get_hard()?;
         for n in 0..nof_limit {
             let mut demux = Demuxer::new("./test_output/test.png")?;
+            demux.set_format("image2");
             unsafe {
                 if let Err(e) = demux.probe_input() {
                     bail!("Failed on {}: {}", n, e);
