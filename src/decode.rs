@@ -1,4 +1,4 @@
-use crate::{bail_ffmpeg, rstr, StreamInfo};
+use crate::{bail_ffmpeg, get_ffmpeg_error_msg, rstr, StreamInfo};
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
@@ -13,7 +13,7 @@ use ffmpeg_sys_the_third::{
     AVCodec, AVCodecContext, AVCodecHWConfig, AVCodecID, AVFrame, AVHWDeviceType, AVPacket,
     AVStream, AVERROR, AVERROR_EOF, AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX,
 };
-use log::trace;
+use log::{trace, warn};
 
 pub struct DecoderCodecContext {
     pub context: *mut AVCodecContext,
@@ -224,7 +224,6 @@ impl Decoder {
                 bail!("Failed to alloc context")
             }
 
-            let mut ret = 0;
             let codec_name = rstr!(avcodec_get_name((*codec).id));
             // try use HW decoder
             let mut hw_config = ptr::null();
@@ -244,14 +243,17 @@ impl Decoder {
                     }
                     let hw_flag = AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX as libc::c_int;
                     if (*hw_config).methods & hw_flag == hw_flag {
-                        ret = av_hwdevice_ctx_create(
+                        let ret = av_hwdevice_ctx_create(
                             &mut hw_buf_ref,
                             (*hw_config).device_type,
                             ptr::null_mut(),
                             ptr::null_mut(),
                             0,
                         );
-                        bail_ffmpeg!(ret, "Failed to create HW ctx");
+                        if ret < 0 {
+                            warn!("Failed to create hardware context {}, continuing without hwaccel: {}", hw_name, get_ffmpeg_error_msg(ret));
+                            continue;
+                        }
                         (*context).hw_device_ctx = av_buffer_ref(hw_buf_ref);
                         break;
                     }
