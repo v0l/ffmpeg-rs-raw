@@ -236,6 +236,9 @@ impl Encoder {
                 bail!(get_ffmpeg_error_msg(ret));
             }
             (*pkt).time_base = (*self.ctx).time_base;
+            if (*pkt).duration == 0 {
+                (*pkt).duration = 1; // Set duration to 1 for video packets (CFR) if not already set
+            }
             if let Some(idx) = self.dst_stream_index {
                 (*pkt).stream_index = idx;
             }
