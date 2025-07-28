@@ -274,6 +274,10 @@ impl MuxerBuilder {
         let ret = avcodec_parameters_copy((*stream).codecpar, (*in_stream).codecpar);
         bail_ffmpeg!(ret);
 
+        //copy some params from in_stream
+        (*stream).time_base = (*in_stream).time_base;
+        (*in_stream).sample_aspect_ratio = (*stream).sample_aspect_ratio;
+
         Ok(stream)
     }
 }
