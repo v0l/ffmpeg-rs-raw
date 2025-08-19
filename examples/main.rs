@@ -1,5 +1,5 @@
-use ffmpeg_rs_raw::{get_frame_from_hw, Decoder, Demuxer, DemuxerInfo, Scaler};
-use ffmpeg_sys_the_third::{av_frame_free, av_packet_free, AVMediaType, AVPixelFormat};
+use ffmpeg_rs_raw::{Decoder, Demuxer, DemuxerInfo, Scaler, get_frame_from_hw};
+use ffmpeg_sys_the_third::{AVMediaType, AVPixelFormat, av_frame_free, av_packet_free};
 use log::{error, info};
 use std::env::args;
 use std::fs::File;

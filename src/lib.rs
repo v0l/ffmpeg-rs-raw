@@ -1,8 +1,8 @@
 use anyhow::Error;
 use ffmpeg_sys_the_third::{
-    av_dict_set, av_frame_alloc, av_frame_copy_props, av_frame_free, av_hwframe_transfer_data,
-    av_make_error_string, av_opt_next, av_opt_set, AVDictionary, AVFrame, AVOption,
-    AV_OPT_SEARCH_CHILDREN,
+    AV_OPT_SEARCH_CHILDREN, AVDictionary, AVFrame, AVOption, av_dict_set, av_frame_alloc,
+    av_frame_copy_props, av_frame_free, av_hwframe_transfer_data, av_make_error_string,
+    av_opt_next, av_opt_set,
 };
 use std::collections::HashMap;
 use std::ptr;
@@ -71,7 +71,10 @@ macro_rules! rstr {
 pub unsafe fn get_frame_duration(frame: *mut AVFrame) -> i64 {
     #[cfg(feature = "avutil_version_greater_than_57_30")]
     return (*frame).duration;
-    #[cfg(feature = "avcodec_version_greater_than_54_24")]
+    #[cfg(all(
+        feature = "avcodec_version_greater_than_54_24",
+        not(feature = "avutil_version_greater_than_57_30")
+    ))]
     return (*frame).pkt_duration;
     #[cfg(all(
         not(feature = "avcodec_version_greater_than_54_24"),
@@ -211,7 +214,7 @@ pub unsafe fn get_frame_from_hw(mut frame: *mut AVFrame) -> Result<*mut AVFrame,
 
 #[cfg(test)]
 pub unsafe fn generate_test_frame() -> *mut AVFrame {
-    use ffmpeg_sys_the_third::{av_frame_get_buffer, AVPixelFormat};
+    use ffmpeg_sys_the_third::{AVPixelFormat, av_frame_get_buffer};
     use std::mem::transmute;
 
     let frame = av_frame_alloc();

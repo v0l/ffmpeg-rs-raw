@@ -1,14 +1,14 @@
-use crate::{bail_ffmpeg, cstr, set_opts, Encoder, AVIO_BUFFER_SIZE};
-use anyhow::{bail, Result};
+use crate::{AVIO_BUFFER_SIZE, Encoder, bail_ffmpeg, cstr, set_opts};
+use anyhow::{Result, bail};
 use ffmpeg_sys_the_third::{
-    av_free, av_interleaved_write_frame, av_mallocz, av_packet_rescale_ts, av_write_trailer,
+    AV_CODEC_FLAG_GLOBAL_HEADER, AVERROR_EOF, AVFMT_GLOBALHEADER, AVFMT_NOFILE, AVFormatContext,
+    AVIO_FLAG_DIRECT, AVIO_FLAG_WRITE, AVIOContext, AVPacket, AVStream, av_free,
+    av_interleaved_write_frame, av_mallocz, av_packet_rescale_ts, av_write_trailer,
     avcodec_parameters_copy, avcodec_parameters_from_context, avformat_alloc_output_context2,
     avformat_free_context, avformat_new_stream, avformat_write_header, avio_alloc_context,
-    avio_close, avio_context_free, avio_open, AVFormatContext, AVIOContext, AVPacket, AVStream,
-    AVERROR_EOF, AVFMT_GLOBALHEADER, AVFMT_NOFILE, AVIO_FLAG_DIRECT, AVIO_FLAG_WRITE,
-    AV_CODEC_FLAG_GLOBAL_HEADER,
+    avio_close, avio_context_free, avio_open,
 };
-use slimbox::{slimbox_unsize, SlimBox, SlimMut};
+use slimbox::{SlimBox, SlimMut, slimbox_unsize};
 use std::collections::HashMap;
 use std::io::{Seek, SeekFrom, Write};
 use std::{ptr, slice};
@@ -69,7 +69,7 @@ impl TryInto<*mut AVIOContext> for &mut MuxerOutput {
     fn try_into(self) -> Result<*mut AVIOContext, Self::Error> {
         unsafe {
             Ok(match self {
-                MuxerOutput::Writer(ref mut w) => {
+                MuxerOutput::Writer(w) => {
                     let writer = w.take().expect("writer already consumed");
                     let pb = avio_alloc_context(
                         av_mallocz(AVIO_BUFFER_SIZE) as *mut _,
@@ -86,7 +86,7 @@ impl TryInto<*mut AVIOContext> for &mut MuxerOutput {
                     }
                     pb
                 }
-                MuxerOutput::WriterSeeker(ref mut w) => {
+                MuxerOutput::WriterSeeker(w) => {
                     let writer = w.take().expect("writer already consumed");
                     let pb = avio_alloc_context(
                         av_mallocz(AVIO_BUFFER_SIZE) as *mut _,
@@ -408,10 +408,10 @@ impl Drop for Muxer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{generate_test_frame, Scaler};
+    use crate::{Scaler, generate_test_frame};
     use ffmpeg_sys_the_third::AVCodecID::AV_CODEC_ID_H264;
     use ffmpeg_sys_the_third::AVPixelFormat::AV_PIX_FMT_YUV420P;
-    use ffmpeg_sys_the_third::{AVFrame, AV_PROFILE_H264_MAIN};
+    use ffmpeg_sys_the_third::{AV_PROFILE_H264_MAIN, AVFrame};
     use std::path::PathBuf;
 
     unsafe fn setup_encoder() -> Result<(*mut AVFrame, Encoder)> {

@@ -2,10 +2,10 @@ use std::mem::transmute;
 use std::ptr;
 
 use crate::{bail_ffmpeg, rstr};
-use anyhow::{bail, Error};
+use anyhow::{Error, bail};
 use ffmpeg_sys_the_third::{
-    av_frame_alloc, av_frame_copy_props, av_frame_free, av_get_pix_fmt_name, sws_freeContext,
-    sws_getContext, sws_scale_frame, AVFrame, AVPixelFormat, SwsContext,
+    AVFrame, AVPixelFormat, SwsContext, av_frame_alloc, av_frame_copy_props, av_frame_free,
+    av_get_pix_fmt_name, sws_freeContext, sws_getContext, sws_scale_frame,
 };
 use log::trace;
 
@@ -127,7 +127,7 @@ impl Scaler {
 mod tests {
     use super::*;
     use crate::generate_test_frame;
-    use ffmpeg_sys_the_third::{av_frame_free, AVPixelFormat};
+    use ffmpeg_sys_the_third::{AVPixelFormat, av_frame_free};
 
     #[test]
     fn scale_rgb24_yuv420() {

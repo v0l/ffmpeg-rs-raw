@@ -1,25 +1,25 @@
-use crate::{bail_ffmpeg, cstr, rstr};
 use crate::{DemuxerInfo, StreamInfo, StreamType};
 #[cfg(feature = "avformat_version_greater_than_60_19")]
 use crate::{StreamGroupInfo, StreamGroupType};
-use anyhow::{bail, Error, Result};
+use crate::{bail_ffmpeg, cstr, rstr};
+use anyhow::{Error, Result, bail};
 #[cfg(feature = "avformat_version_greater_than_60_22")]
 use ffmpeg_sys_the_third::AVStreamGroupParamsType::AV_STREAM_GROUP_PARAMS_TILE_GRID;
 use ffmpeg_sys_the_third::*;
 use log::warn;
-use slimbox::{slimbox_unsize, SlimBox, SlimMut};
+use slimbox::{SlimBox, SlimMut, slimbox_unsize};
 use std::collections::HashMap;
 use std::io::Read;
 use std::{ptr, slice};
 
-#[no_mangle]
-unsafe extern "C" fn read_data(
+#[unsafe(no_mangle)]
+extern "C" fn read_data(
     opaque: *mut libc::c_void,
     dst_buffer: *mut libc::c_uchar,
     size: libc::c_int,
 ) -> libc::c_int {
-    let mut buffer: SlimMut<'_, dyn Read + 'static> = SlimMut::from_raw(opaque);
-    let dst_slice: &mut [u8] = slice::from_raw_parts_mut(dst_buffer, size as usize);
+    let mut buffer: SlimMut<'_, dyn Read + 'static> = unsafe { SlimMut::from_raw(opaque) };
+    let dst_slice: &mut [u8] = unsafe { slice::from_raw_parts_mut(dst_buffer, size as usize) };
     match buffer.read(dst_slice) {
         Ok(r) => r as libc::c_int,
         Err(e) => {

@@ -2,7 +2,7 @@ use crate::{format_time, rstr};
 #[cfg(feature = "avformat_version_greater_than_60_19")]
 use ffmpeg_sys_the_third::AVStreamGroup;
 use ffmpeg_sys_the_third::{
-    av_get_pix_fmt_name, av_get_sample_fmt_name, avcodec_get_name, AVMediaType, AVStream,
+    AVMediaType, AVStream, av_get_pix_fmt_name, av_get_sample_fmt_name, avcodec_get_name,
 };
 
 use std::fmt::{Display, Formatter};

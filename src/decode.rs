@@ -1,17 +1,17 @@
-use crate::{bail_ffmpeg, get_ffmpeg_error_msg, rstr, StreamInfo};
+use crate::{StreamInfo, bail_ffmpeg, get_ffmpeg_error_msg, rstr};
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::ptr;
 
-use anyhow::{bail, Error};
+use anyhow::{Error, bail};
 use ffmpeg_sys_the_third::{
-    av_buffer_ref, av_frame_alloc, av_frame_free, av_hwdevice_ctx_create,
-    av_hwdevice_get_type_name, av_hwdevice_iterate_types, avcodec_alloc_context3,
-    avcodec_find_decoder, avcodec_free_context, avcodec_get_hw_config, avcodec_get_name,
-    avcodec_open2, avcodec_parameters_to_context, avcodec_receive_frame, avcodec_send_packet,
-    AVCodec, AVCodecContext, AVCodecHWConfig, AVCodecID, AVFrame, AVHWDeviceType, AVPacket,
-    AVStream, AVERROR, AVERROR_EOF, AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX,
+    AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX, AVCodec, AVCodecContext, AVCodecHWConfig, AVCodecID,
+    AVERROR, AVERROR_EOF, AVFrame, AVHWDeviceType, AVPacket, AVStream, av_buffer_ref,
+    av_frame_alloc, av_frame_free, av_hwdevice_ctx_create, av_hwdevice_get_type_name,
+    av_hwdevice_iterate_types, avcodec_alloc_context3, avcodec_find_decoder, avcodec_free_context,
+    avcodec_get_hw_config, avcodec_get_name, avcodec_open2, avcodec_parameters_to_context,
+    avcodec_receive_frame, avcodec_send_packet,
 };
 use log::{trace, warn};
 
@@ -251,7 +251,11 @@ impl Decoder {
                             0,
                         );
                         if ret < 0 {
-                            warn!("Failed to create hardware context {}, continuing without hwaccel: {}", hw_name, get_ffmpeg_error_msg(ret));
+                            warn!(
+                                "Failed to create hardware context {}, continuing without hwaccel: {}",
+                                hw_name,
+                                get_ffmpeg_error_msg(ret)
+                            );
                             continue;
                         }
                         (*context).hw_device_ctx = av_buffer_ref(hw_buf_ref);

@@ -1,9 +1,9 @@
 use crate::bail_ffmpeg;
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use ffmpeg_sys_the_third::{
-    av_audio_fifo_alloc, av_audio_fifo_read, av_audio_fifo_realloc, av_audio_fifo_size,
-    av_audio_fifo_write, av_channel_layout_default, av_frame_alloc, av_frame_free,
-    av_frame_get_buffer, AVAudioFifo, AVFrame, AVSampleFormat, AV_NOPTS_VALUE,
+    AV_NOPTS_VALUE, AVAudioFifo, AVFrame, AVSampleFormat, av_audio_fifo_alloc, av_audio_fifo_read,
+    av_audio_fifo_realloc, av_audio_fifo_size, av_audio_fifo_write, av_channel_layout_default,
+    av_frame_alloc, av_frame_free, av_frame_get_buffer,
 };
 
 pub struct AudioFifo {
@@ -84,7 +84,7 @@ impl AudioFifo {
 mod tests {
     use super::*;
     use crate::Encoder;
-    use ffmpeg_sys_the_third::{av_channel_layout_default, av_packet_free, AVChannelLayout};
+    use ffmpeg_sys_the_third::{AVChannelLayout, av_channel_layout_default, av_packet_free};
     use std::ptr;
     #[test]
     fn test_buffer() -> Result<()> {
