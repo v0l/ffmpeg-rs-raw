@@ -358,8 +358,7 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 [[package]]
 name = "slimbox"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26dfcf7e4fe830e4b9245b9e0def30d3df9ea194aca707e9a78b079d2b646b1a"
+source = "git+https://github.com/v0l/slimbox?rev=807c88212532732ead03e925c4788533aeb8f196#807c88212532732ead03e925c4788533aeb8f196"
 
 [[package]]
 name = "syn"
