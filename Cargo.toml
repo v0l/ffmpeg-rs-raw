@@ -1,6 +1,6 @@
 [package]
 name = "ffmpeg-rs-raw"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 repository = "https://git.v0l.io/Kieran/ffmpeg-rs-raw.git"
 authors = ["Kieran"]
@@ -10,7 +10,7 @@ crate-type = ["lib", "cdylib"]
 
 [dependencies]
 anyhow = "1.0.91"
-ffmpeg-sys-the-third = { git = "https://git.v0l.io/Kieran/ffmpeg-the-third.git", rev = "3059cf6666e0b2d6eaeea00224c25cc95fad5b4a" }
+ffmpeg-sys-the-third = { git = "https://github.com/v0l/ffmpeg-the-third.git", rev = "bf1d21071e92ad7d212f9129eaf13faabeb42920" }
 libc = { version = "0.2.175" }
 slimbox = { git = "https://github.com/v0l/slimbox", rev = "f40fb964fc515b40807d925104ee7a5f3122c1fc" }
 log = "0.4.22"

@@ -9,9 +9,19 @@ RUN apt update && \
     libvpx-dev \
     libopus-dev \
     libdav1d-dev \
+    libvpl-dev \
+    libva-dev \
+    libva-dev \
     nasm \
     libclang-dev && \
     rm -rf /var/lib/apt/lists/*
+
+## nv-codec-headers
+RUN git clone https://git.videolan.org/git/ffmpeg/nv-codec-headers.git && \
+    cd nv-codec-headers && \
+    make -j$(nproc) install
+
+## FFMPEG
 RUN git clone --single-branch --branch release/7.1 https://git.v0l.io/ffmpeg/FFmpeg.git && \
     cd FFmpeg && \
     ./configure \
@@ -26,6 +36,7 @@ RUN git clone --single-branch --branch release/7.1 https://git.v0l.io/ffmpeg/FFm
     --enable-libvpx \
     --enable-libopus \
     --enable-libdav1d \
+    --enable-libvpl \
     --disable-static \
     --disable-postproc \
     --enable-shared && \
