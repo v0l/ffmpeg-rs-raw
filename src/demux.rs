@@ -103,6 +103,10 @@ impl Demuxer {
         crate::set_opts(self.ctx as *mut libc::c_void, options)
     }
 
+    fn context(&self) -> *mut AVFormatContext {
+        self.ctx
+    }
+
     unsafe fn open(&mut self) -> Result<()> {
         let format = if let Some(f) = &self.format {
             let fmt_str = cstr!(f.as_str());
