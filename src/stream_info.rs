@@ -139,6 +139,8 @@ pub struct StreamInfo {
     pub language: String,
     /// Number of audio channels
     pub channels: u8,
+    /// Stream timebase (num, den)
+    pub timebase: (i32, i32),
 
     // private stream pointer
     pub(crate) stream: *mut AVStream,
@@ -162,7 +164,7 @@ impl Display for StreamInfo {
         match self.stream_type {
             StreamType::Video => write!(
                 f,
-                "{} #{}: codec={},size={}x{},fps={:.3},pix_fmt={}",
+                "{} #{}: codec={},size={}x{},fps={:.3},pix_fmt={},timebase={}/{}",
                 self.stream_type,
                 self.index,
                 codec_name,
@@ -170,10 +172,12 @@ impl Display for StreamInfo {
                 self.height,
                 self.fps,
                 unsafe { rstr!(av_get_pix_fmt_name(transmute(self.format as libc::c_int))) },
+                self.timebase.0,
+                self.timebase.1,
             ),
             StreamType::Audio => write!(
                 f,
-                "{} #{}: codec={},format={},sample_rate={},lang={}",
+                "{} #{}: codec={},format={},sample_rate={},lang={},timebase={}/{}",
                 self.stream_type,
                 self.index,
                 codec_name,
@@ -184,11 +188,15 @@ impl Display for StreamInfo {
                 },
                 self.sample_rate,
                 self.language,
+                self.timebase.0,
+                self.timebase.1,
             ),
             StreamType::Subtitle => write!(
                 f,
-                "{} #{}: codec={},lang={}",
-                self.stream_type, self.index, codec_name, self.language
+                "{} #{}: codec={},lang={},timebase={}/{}",
+                self.stream_type, self.index, codec_name, self.language,
+                self.timebase.0,
+                self.timebase.1,
             ),
         }
     }

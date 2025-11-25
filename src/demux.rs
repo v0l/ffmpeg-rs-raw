@@ -226,6 +226,7 @@ impl Demuxer {
                         channels: 0,
                         start_time: ((*stream).start_time as f64 * q) as f32,
                         language,
+                        timebase: ((*stream).time_base.num, (*stream).time_base.den),
                     });
                 }
                 AVMediaType::AVMEDIA_TYPE_AUDIO => {
@@ -242,6 +243,7 @@ impl Demuxer {
                         channels: (*(*stream).codecpar).ch_layout.nb_channels as _,
                         start_time: ((*stream).start_time as f64 * q) as f32,
                         language,
+                        timebase: ((*stream).time_base.num, (*stream).time_base.den),
                     });
                 }
                 AVMediaType::AVMEDIA_TYPE_SUBTITLE => {
@@ -258,6 +260,7 @@ impl Demuxer {
                         channels: 0,
                         start_time: ((*stream).start_time as f64 * q) as f32,
                         language,
+                        timebase: ((*stream).time_base.num, (*stream).time_base.den),
                     });
                 }
                 AVMediaType::AVMEDIA_TYPE_ATTACHMENT => {}
