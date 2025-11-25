@@ -103,7 +103,7 @@ impl Demuxer {
         crate::set_opts(self.ctx as *mut libc::c_void, options)
     }
 
-    fn context(&self) -> *mut AVFormatContext {
+    pub fn context(&self) -> *mut AVFormatContext {
         self.ctx
     }
 
