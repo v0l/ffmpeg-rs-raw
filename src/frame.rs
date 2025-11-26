@@ -17,8 +17,10 @@ impl Clone for AvFrameRef {
 
 impl Drop for AvFrameRef {
     fn drop(&mut self) {
-        unsafe {
-            av_frame_free(&mut self.frame);
+        if !self.frame.is_null() {
+            unsafe {
+                av_frame_free(&mut self.frame);
+            }
         }
         self.frame = std::ptr::null_mut();
     }
@@ -44,6 +46,8 @@ impl AvFrameRef {
     }
 }
 
+unsafe impl Send for AvFrameRef {}
+
 /// Safe wrapper around AVPacket
 pub struct AvPacketRef {
     packet: *mut AVPacket,
@@ -58,8 +62,10 @@ impl Clone for AvPacketRef {
 
 impl Drop for AvPacketRef {
     fn drop(&mut self) {
-        unsafe {
-            av_packet_free(&mut self.packet);
+        if !self.packet.is_null() {
+            unsafe {
+                av_packet_free(&mut self.packet);
+            }
         }
         self.packet = std::ptr::null_mut();
     }
@@ -84,3 +90,5 @@ impl AvPacketRef {
         self.packet
     }
 }
+
+unsafe impl Send for AvPacketRef {}
