@@ -6,7 +6,7 @@ use ffmpeg_sys_the_third::{
 };
 
 use std::fmt::{Display, Formatter};
-use std::intrinsics::transmute;
+use std::mem::transmute;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct DemuxerInfo {
@@ -51,18 +51,22 @@ impl DemuxerInfo {
     }
 
     pub unsafe fn is_best_stream(&self, stream: *mut AVStream) -> bool {
-        match (*(*stream).codecpar).codec_type {
-            AVMediaType::AVMEDIA_TYPE_VIDEO => {
-                (*stream).index == self.best_video().map_or(usize::MAX, |r| r.index) as libc::c_int
+        unsafe {
+            match (*(*stream).codecpar).codec_type {
+                AVMediaType::AVMEDIA_TYPE_VIDEO => {
+                    (*stream).index
+                        == self.best_video().map_or(usize::MAX, |r| r.index) as libc::c_int
+                }
+                AVMediaType::AVMEDIA_TYPE_AUDIO => {
+                    (*stream).index
+                        == self.best_audio().map_or(usize::MAX, |r| r.index) as libc::c_int
+                }
+                AVMediaType::AVMEDIA_TYPE_SUBTITLE => {
+                    (*stream).index
+                        == self.best_subtitle().map_or(usize::MAX, |r| r.index) as libc::c_int
+                }
+                _ => false,
             }
-            AVMediaType::AVMEDIA_TYPE_AUDIO => {
-                (*stream).index == self.best_audio().map_or(usize::MAX, |r| r.index) as libc::c_int
-            }
-            AVMediaType::AVMEDIA_TYPE_SUBTITLE => {
-                (*stream).index
-                    == self.best_subtitle().map_or(usize::MAX, |r| r.index) as libc::c_int
-            }
-            _ => false,
         }
     }
 }
@@ -194,7 +198,10 @@ impl Display for StreamInfo {
             StreamType::Subtitle => write!(
                 f,
                 "{} #{}: codec={},lang={},timebase={}/{}",
-                self.stream_type, self.index, codec_name, self.language,
+                self.stream_type,
+                self.index,
+                codec_name,
+                self.language,
                 self.timebase.0,
                 self.timebase.1,
             ),

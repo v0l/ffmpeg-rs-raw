@@ -1,5 +1,5 @@
 use ffmpeg_rs_raw::{Decoder, Demuxer, DemuxerInfo, Scaler, get_frame_from_hw};
-use ffmpeg_sys_the_third::{AVMediaType, AVPixelFormat, av_frame_free, av_packet_free};
+use ffmpeg_sys_the_third::{AVMediaType, AVPixelFormat};
 use log::{error, info};
 use std::env::args;
 use std::fs::File;
@@ -32,53 +32,49 @@ fn read_as_file(path_buf: PathBuf) -> Demuxer {
 }
 
 fn scan_input(mut demuxer: Demuxer) {
-    unsafe {
-        let info = demuxer.probe_input().expect("demuxer failed");
-        info!("{}", info);
-        decode_input(demuxer, info);
-    }
+    let info = unsafe { demuxer.probe_input().expect("demuxer failed") };
+    info!("{}", info);
+    decode_input(demuxer, info);
 }
 
-unsafe fn decode_input(demuxer: Demuxer, info: DemuxerInfo) {
+fn decode_input(demuxer: Demuxer, info: DemuxerInfo) {
     let mut decoder = Decoder::new();
     decoder.enable_hw_decoder_any();
 
     for ref stream in info.streams {
-        decoder
-            .setup_decoder(stream, None)
-            .expect("decoder setup failed");
+        unsafe {
+            decoder
+                .setup_decoder(stream, None)
+                .expect("decoder setup failed");
+        }
     }
     loop_decoder(demuxer, decoder);
 }
 
-unsafe fn loop_decoder(mut demuxer: Demuxer, mut decoder: Decoder) {
+fn loop_decoder(mut demuxer: Demuxer, mut decoder: Decoder) {
     let mut scale = Scaler::new();
     loop {
-        let (mut pkt, stream) = demuxer.get_packet().expect("demuxer failed");
-        if pkt.is_null() {
+        let (pkt, stream) = unsafe { demuxer.get_packet().expect("demuxer failed") };
+        let Some(pkt) = pkt else {
             break; // EOF
-        }
-        let media_type = (*(*stream).codecpar).codec_type;
+        };
+        let media_type = unsafe { (*(*stream).codecpar).codec_type };
         // only decode audio/video
         if media_type != AVMediaType::AVMEDIA_TYPE_VIDEO
             && media_type != AVMediaType::AVMEDIA_TYPE_AUDIO
         {
-            av_packet_free(&mut pkt);
             continue;
         }
-        if let Ok(frames) = decoder.decode_pkt(pkt) {
-            for (mut frame, _stream) in frames {
+        if let Ok(frames) = decoder.decode_pkt(Some(&pkt)) {
+            for (frame, _stream) in frames {
                 // do nothing but decode entire stream
                 if media_type == AVMediaType::AVMEDIA_TYPE_VIDEO {
-                    frame = get_frame_from_hw(frame).expect("get frame failed");
-                    let mut new_frame = scale
-                        .process_frame(frame, 512, 512, AVPixelFormat::AV_PIX_FMT_RGBA)
+                    let frame = get_frame_from_hw(frame).expect("get frame failed");
+                    let _new_frame = scale
+                        .process_frame(&frame, 512, 512, AVPixelFormat::AV_PIX_FMT_RGBA)
                         .expect("scale failed");
-                    av_frame_free(&mut new_frame);
                 }
-                av_frame_free(&mut frame);
             }
         }
-        av_packet_free(&mut pkt);
     }
 }

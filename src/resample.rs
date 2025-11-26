@@ -1,4 +1,4 @@
-use crate::bail_ffmpeg;
+use crate::{AvFrameRef, bail_ffmpeg};
 use anyhow::Error;
 use ffmpeg_sys_the_third::{
     AVChannelLayout, AVFrame, AVSampleFormat, SwrContext, av_channel_layout_default,
@@ -35,50 +35,55 @@ impl Resample {
         }
     }
 
-    unsafe fn setup_swr(&mut self, frame: *mut AVFrame) -> Result<(), Error> {
-        if !self.ctx.is_null() {
-            return Ok(());
+    unsafe fn setup_swr(&mut self, frame_ptr: *mut AVFrame) -> Result<(), Error> {
+        unsafe {
+            if !self.ctx.is_null() {
+                return Ok(());
+            }
+            let mut layout = AVChannelLayout::empty();
+            av_channel_layout_default(&mut layout, self.channels as libc::c_int);
+
+            let ret = swr_alloc_set_opts2(
+                &mut self.ctx,
+                ptr::addr_of_mut!(layout),
+                self.format,
+                self.sample_rate as libc::c_int,
+                ptr::addr_of_mut!((*frame_ptr).ch_layout),
+                transmute((*frame_ptr).format),
+                (*frame_ptr).sample_rate,
+                0,
+                ptr::null_mut(),
+            );
+            bail_ffmpeg!(ret);
+
+            let ret = swr_init(self.ctx);
+            bail_ffmpeg!(ret);
+
+            Ok(())
         }
-        let mut layout = AVChannelLayout::empty();
-        av_channel_layout_default(&mut layout, self.channels as libc::c_int);
-
-        let ret = swr_alloc_set_opts2(
-            &mut self.ctx,
-            ptr::addr_of_mut!(layout),
-            self.format,
-            self.sample_rate as libc::c_int,
-            ptr::addr_of_mut!((*frame).ch_layout),
-            transmute((*frame).format),
-            (*frame).sample_rate,
-            0,
-            ptr::null_mut(),
-        );
-        bail_ffmpeg!(ret);
-
-        let ret = swr_init(self.ctx);
-        bail_ffmpeg!(ret);
-
-        Ok(())
     }
 
     /// Resample an audio frame
-    pub unsafe fn process_frame(&mut self, frame: *mut AVFrame) -> Result<*mut AVFrame, Error> {
-        if !(*frame).hw_frames_ctx.is_null() {
+    pub fn process_frame(&mut self, frame: &AvFrameRef) -> Result<AvFrameRef, Error> {
+        if !frame.hw_frames_ctx.is_null() {
             anyhow::bail!("Hardware frames are not supported in this software re-sampler");
         }
-        self.setup_swr(frame)?;
 
-        let mut out_frame = av_frame_alloc();
-        av_frame_copy_props(out_frame, frame);
-        (*out_frame).sample_rate = self.sample_rate as libc::c_int;
-        (*out_frame).format = transmute(self.format);
-        av_channel_layout_default(&mut (*out_frame).ch_layout, self.channels as libc::c_int);
+        unsafe {
+            self.setup_swr(frame.ptr())?;
 
-        let ret = swr_convert_frame(self.ctx, out_frame, frame);
-        bail_ffmpeg!(ret, {
-            av_frame_free(&mut out_frame);
-        });
+            let out_frame = av_frame_alloc();
+            av_frame_copy_props(out_frame, frame.ptr());
+            (*out_frame).sample_rate = self.sample_rate as libc::c_int;
+            (*out_frame).format = transmute(self.format);
+            av_channel_layout_default(&mut (*out_frame).ch_layout, self.channels as libc::c_int);
 
-        Ok(out_frame)
+            let ret = swr_convert_frame(self.ctx, out_frame, frame.ptr());
+            bail_ffmpeg!(ret, {
+                av_frame_free(&mut (out_frame as *mut _));
+            });
+
+            Ok(AvFrameRef::new(out_frame))
+        }
     }
 }

@@ -1,12 +1,12 @@
-use crate::{AVIO_BUFFER_SIZE, Encoder, bail_ffmpeg, cstr, set_opts};
+use crate::{AVIO_BUFFER_SIZE, AvPacketRef, Encoder, bail_ffmpeg, cstr, set_opts};
 use anyhow::{Result, bail};
 use ffmpeg_sys_the_third::{
     AV_CODEC_FLAG_GLOBAL_HEADER, AVERROR_EOF, AVFMT_GLOBALHEADER, AVFMT_NOFILE, AVFormatContext,
-    AVIO_FLAG_DIRECT, AVIO_FLAG_WRITE, AVIOContext, AVPacket, AVStream, av_free,
-    av_interleaved_write_frame, av_mallocz, av_packet_rescale_ts, av_write_trailer,
-    avcodec_parameters_copy, avcodec_parameters_from_context, avformat_alloc_output_context2,
-    avformat_free_context, avformat_new_stream, avformat_write_header, avio_alloc_context,
-    avio_close, avio_context_free, avio_open,
+    AVIO_FLAG_DIRECT, AVIO_FLAG_WRITE, AVIOContext, AVStream, av_free, av_interleaved_write_frame,
+    av_mallocz, av_packet_rescale_ts, av_write_trailer, avcodec_parameters_copy,
+    avcodec_parameters_from_context, avformat_alloc_output_context2, avformat_free_context,
+    avformat_new_stream, avformat_write_header, avio_alloc_context, avio_close, avio_context_free,
+    avio_open,
 };
 use slimbox::{SlimBox, SlimMut, slimbox_unsize};
 use std::collections::HashMap;
@@ -26,24 +26,28 @@ unsafe extern "C" fn write_data<T>(
 where
     T: Write + 'static + ?Sized,
 {
-    let mut writer: SlimMut<'_, T> = SlimMut::from_raw(opaque);
-    let data = slice::from_raw_parts(buffer, size as usize);
-    match writer.write_all(data) {
-        Ok(_) => size,
-        Err(e) => {
-            eprintln!("write_data {}", e);
-            AVERROR_EOF
+    unsafe {
+        let mut writer: SlimMut<'_, T> = SlimMut::from_raw(opaque);
+        let data = slice::from_raw_parts(buffer, size as usize);
+        match writer.write_all(data) {
+            Ok(_) => size,
+            Err(e) => {
+                eprintln!("write_data {}", e);
+                AVERROR_EOF
+            }
         }
     }
 }
 
 unsafe extern "C" fn seek_data(opaque: *mut libc::c_void, offset: i64, whence: libc::c_int) -> i64 {
-    let mut writer: SlimMut<'_, dyn WriteSeek + 'static> = SlimMut::from_raw(opaque);
-    match whence {
-        libc::SEEK_SET => writer.seek(SeekFrom::Start(offset as u64)).unwrap_or(0) as i64,
-        libc::SEEK_CUR => writer.seek(SeekFrom::Current(offset)).unwrap_or(0) as i64,
-        libc::SEEK_END => writer.seek(SeekFrom::End(offset)).unwrap_or(0) as i64,
-        _ => panic!("seek_data not supported from whence {}", whence),
+    unsafe {
+        let mut writer: SlimMut<'_, dyn WriteSeek + 'static> = SlimMut::from_raw(opaque);
+        match whence {
+            libc::SEEK_SET => writer.seek(SeekFrom::Start(offset as u64)).unwrap_or(0) as i64,
+            libc::SEEK_CUR => writer.seek(SeekFrom::Current(offset)).unwrap_or(0) as i64,
+            libc::SEEK_END => writer.seek(SeekFrom::End(offset)).unwrap_or(0) as i64,
+            _ => panic!("seek_data not supported from whence {}", whence),
+        }
     }
 }
 
@@ -137,31 +141,33 @@ impl MuxerBuilder {
         dst: Option<&str>,
         format: Option<&str>,
     ) -> Result<()> {
-        if !ctx.is_null() {
-            bail!("context already open");
-        }
+        unsafe {
+            if !ctx.is_null() {
+                bail!("context already open");
+            }
 
-        let ret = avformat_alloc_output_context2(
-            ctx,
-            ptr::null_mut(),
-            if let Some(format) = format {
-                cstr!(format)
-            } else {
-                ptr::null()
-            },
-            if let Some(dst) = dst {
-                cstr!(dst)
-            } else {
-                ptr::null()
-            },
-        );
-        bail_ffmpeg!(ret);
+            let ret = avformat_alloc_output_context2(
+                ctx,
+                ptr::null_mut(),
+                if let Some(format) = format {
+                    cstr!(format)
+                } else {
+                    ptr::null()
+                },
+                if let Some(dst) = dst {
+                    cstr!(dst)
+                } else {
+                    ptr::null()
+                },
+            );
+            bail_ffmpeg!(ret);
 
-        // Setup global header flag
-        if (*(**ctx).oformat).flags & AVFMT_GLOBALHEADER != 0 {
-            (**ctx).flags |= AV_CODEC_FLAG_GLOBAL_HEADER as libc::c_int;
+            // Setup global header flag
+            if (*(**ctx).oformat).flags & AVFMT_GLOBALHEADER != 0 {
+                (**ctx).flags |= AV_CODEC_FLAG_GLOBAL_HEADER as libc::c_int;
+            }
+            Ok(())
         }
-        Ok(())
     }
 
     /// Open the muxer with a destination path
@@ -169,11 +175,13 @@ impl MuxerBuilder {
     where
         T: Into<&'a str>,
     {
-        let path_str = dst.into();
-        Self::init_ctx(&mut self.ctx, Some(path_str), format)?;
-        self.url = Some(path_str.to_string());
-        self.output = MuxerOutput::Url(path_str.to_string());
-        Ok(self)
+        unsafe {
+            let path_str = dst.into();
+            Self::init_ctx(&mut self.ctx, Some(path_str), format)?;
+            self.url = Some(path_str.to_string());
+            self.output = MuxerOutput::Url(path_str.to_string());
+            Ok(self)
+        }
     }
 
     /// Create a muxer using a custom IO context
@@ -186,10 +194,12 @@ impl MuxerBuilder {
     where
         W: WriteSeek + 'static,
     {
-        Self::init_ctx(&mut self.ctx, None, format)?;
-        self.format = format.map(str::to_string);
-        self.output = MuxerOutput::WriterSeeker(Some(slimbox_unsize!(writer)));
-        Ok(self)
+        unsafe {
+            Self::init_ctx(&mut self.ctx, None, format)?;
+            self.format = format.map(str::to_string);
+            self.output = MuxerOutput::WriterSeeker(Some(slimbox_unsize!(writer)));
+            Ok(self)
+        }
     }
 
     /// Create a muxer using a custom IO context
@@ -197,21 +207,27 @@ impl MuxerBuilder {
     where
         W: Write + 'static,
     {
-        Self::init_ctx(&mut self.ctx, None, format)?;
-        self.output = MuxerOutput::Writer(Some(slimbox_unsize!(writer)));
-        Ok(self)
+        unsafe {
+            Self::init_ctx(&mut self.ctx, None, format)?;
+            self.output = MuxerOutput::Writer(Some(slimbox_unsize!(writer)));
+            Ok(self)
+        }
     }
 
     /// Add a stream to the output using an existing encoder
     pub unsafe fn with_stream_encoder(self, encoder: &Encoder) -> Result<Self> {
-        Self::add_stream_from_encoder(self.ctx, encoder)?;
-        Ok(self)
+        unsafe {
+            Self::add_stream_from_encoder(self.ctx, encoder)?;
+            Ok(self)
+        }
     }
 
     /// Add a stream to the output using an existing input stream (copy)
     pub unsafe fn with_copy_stream(self, in_stream: *mut AVStream) -> Result<Self> {
-        Self::add_copy_stream(self.ctx, in_stream)?;
-        Ok(self)
+        unsafe {
+            Self::add_copy_stream(self.ctx, in_stream)?;
+            Ok(self)
+        }
     }
 
     /// Apply custom options to the [AVFormatContext]
@@ -240,45 +256,49 @@ impl MuxerBuilder {
         ctx: *mut AVFormatContext,
         encoder: &Encoder,
     ) -> Result<*mut AVStream> {
-        if ctx.is_null() {
-            bail!("cannot add stream to null ctx");
-        }
-        let stream = avformat_new_stream(ctx, encoder.codec());
-        if stream.is_null() {
-            bail!("unable to allocate stream");
-        }
-        let ret = avcodec_parameters_from_context((*stream).codecpar, encoder.codec_context());
-        bail_ffmpeg!(ret);
+        unsafe {
+            if ctx.is_null() {
+                bail!("cannot add stream to null ctx");
+            }
+            let stream = avformat_new_stream(ctx, encoder.codec());
+            if stream.is_null() {
+                bail!("unable to allocate stream");
+            }
+            let ret = avcodec_parameters_from_context((*stream).codecpar, encoder.codec_context());
+            bail_ffmpeg!(ret);
 
-        // setup other stream params
-        let encoder_ctx = encoder.codec_context();
-        (*stream).sample_aspect_ratio = (*encoder_ctx).sample_aspect_ratio;
-        (*stream).time_base = (*encoder_ctx).time_base;
+            // setup other stream params
+            let encoder_ctx = encoder.codec_context();
+            (*stream).sample_aspect_ratio = (*encoder_ctx).sample_aspect_ratio;
+            (*stream).time_base = (*encoder_ctx).time_base;
 
-        Ok(stream)
+            Ok(stream)
+        }
     }
 
     pub(crate) unsafe fn add_copy_stream(
         ctx: *mut AVFormatContext,
         in_stream: *mut AVStream,
     ) -> Result<*mut AVStream> {
-        if ctx.is_null() {
-            bail!("cannot add stream to null ctx");
+        unsafe {
+            if ctx.is_null() {
+                bail!("cannot add stream to null ctx");
+            }
+            let stream = avformat_new_stream(ctx, ptr::null_mut());
+            if stream.is_null() {
+                bail!("unable to allocate stream");
+            }
+
+            // copy params from input
+            let ret = avcodec_parameters_copy((*stream).codecpar, (*in_stream).codecpar);
+            bail_ffmpeg!(ret);
+
+            //copy some params from in_stream
+            (*stream).time_base = (*in_stream).time_base;
+            (*in_stream).sample_aspect_ratio = (*stream).sample_aspect_ratio;
+
+            Ok(stream)
         }
-        let stream = avformat_new_stream(ctx, ptr::null_mut());
-        if stream.is_null() {
-            bail!("unable to allocate stream");
-        }
-
-        // copy params from input
-        let ret = avcodec_parameters_copy((*stream).codecpar, (*in_stream).codecpar);
-        bail_ffmpeg!(ret);
-
-        //copy some params from in_stream
-        (*stream).time_base = (*in_stream).time_base;
-        (*in_stream).sample_aspect_ratio = (*stream).sample_aspect_ratio;
-
-        Ok(stream)
     }
 }
 
@@ -289,17 +309,19 @@ impl Muxer {
 
     /// Add a stream to the output using an existing encoder
     pub unsafe fn add_stream_encoder(&mut self, encoder: &Encoder) -> Result<*mut AVStream> {
-        MuxerBuilder::add_stream_from_encoder(self.ctx, encoder)
+        unsafe { MuxerBuilder::add_stream_from_encoder(self.ctx, encoder) }
     }
 
     /// Add a stream to the output using an existing input stream (copy)
     pub unsafe fn add_copy_stream(&mut self, in_stream: *mut AVStream) -> Result<*mut AVStream> {
-        MuxerBuilder::add_copy_stream(self.ctx, in_stream)
+        unsafe { MuxerBuilder::add_copy_stream(self.ctx, in_stream) }
     }
 
     /// Initialize the context, usually after it was closed with [Muxer::close]
     pub unsafe fn init(&mut self) -> Result<()> {
-        MuxerBuilder::init_ctx(&mut self.ctx, self.url.as_deref(), self.format.as_deref())
+        unsafe {
+            MuxerBuilder::init_ctx(&mut self.ctx, self.url.as_deref(), self.format.as_deref())
+        }
     }
 
     /// Change the muxer URL
@@ -322,27 +344,29 @@ impl Muxer {
 
     /// Open the output to start sending packets
     pub unsafe fn open(&mut self, options: Option<HashMap<String, String>>) -> Result<()> {
-        // Set options on ctx
-        if let Some(opts) = options {
-            set_opts((*self.ctx).priv_data, opts)?;
-        }
-
-        if (*(*self.ctx).oformat).flags & AVFMT_NOFILE == 0 {
-            (*self.ctx).pb = (&mut self.output).try_into()?;
-            // if pb is still null, open with ctx.url
-            if (*self.ctx).pb.is_null() {
-                let ret = avio_open(&mut (*self.ctx).pb, (*self.ctx).url, AVIO_FLAG_WRITE);
-                bail_ffmpeg!(ret);
-            } else {
-                // Don't write buffer, just let the handler functions write directly
-                (*self.ctx).flags |= AVIO_FLAG_DIRECT;
+        unsafe {
+            // Set options on ctx
+            if let Some(opts) = options {
+                set_opts((*self.ctx).priv_data, opts)?;
             }
+
+            if (*(*self.ctx).oformat).flags & AVFMT_NOFILE == 0 {
+                (*self.ctx).pb = (&mut self.output).try_into()?;
+                // if pb is still null, open with ctx.url
+                if (*self.ctx).pb.is_null() {
+                    let ret = avio_open(&mut (*self.ctx).pb, (*self.ctx).url, AVIO_FLAG_WRITE);
+                    bail_ffmpeg!(ret);
+                } else {
+                    // Don't write buffer, just let the handler functions write directly
+                    (*self.ctx).flags |= AVIO_FLAG_DIRECT;
+                }
+            }
+
+            let ret = avformat_write_header(self.ctx, ptr::null_mut());
+            bail_ffmpeg!(ret);
+
+            Ok(())
         }
-
-        let ret = avformat_write_header(self.ctx, ptr::null_mut());
-        bail_ffmpeg!(ret);
-
-        Ok(())
     }
 
     /// Get [AVFormatContext] pointer
@@ -351,49 +375,56 @@ impl Muxer {
     }
 
     /// Write a packet to the output
-    pub unsafe fn write_packet(&mut self, pkt: *mut AVPacket) -> Result<()> {
-        let stream = *(*self.ctx).streams.add((*pkt).stream_index as usize);
-        av_packet_rescale_ts(pkt, (*pkt).time_base, (*stream).time_base);
-        (*pkt).time_base = (*stream).time_base;
+    pub fn write_packet(&mut self, pkt: &AvPacketRef) -> Result<()> {
+        unsafe {
+            let pkt_ptr = pkt.ptr();
+            let stream = *(*self.ctx).streams.add(pkt.stream_index as usize);
+            av_packet_rescale_ts(pkt_ptr, pkt.time_base, (*stream).time_base);
+            (*pkt_ptr).time_base = (*stream).time_base;
 
-        let ret = av_interleaved_write_frame(self.ctx, pkt);
-        bail_ffmpeg!(ret);
-        Ok(())
+            let ret = av_interleaved_write_frame(self.ctx, pkt_ptr);
+            bail_ffmpeg!(ret);
+            Ok(())
+        }
     }
 
     /// Close the output and write the trailer
     /// [Muxer::init] can be used to re-init the muxer
     pub unsafe fn close(&mut self) -> Result<()> {
-        let ret = av_write_trailer(self.ctx);
-        bail_ffmpeg!(ret);
-        self.free_ctx()?;
-        Ok(())
+        unsafe {
+            let ret = av_write_trailer(self.ctx);
+            bail_ffmpeg!(ret);
+            self.free_ctx()?;
+            Ok(())
+        }
     }
 
     unsafe fn free_ctx(&mut self) -> Result<()> {
-        if !self.ctx.is_null() {
-            match self.output {
-                MuxerOutput::Url(_) => {
-                    if !(*self.ctx).pb.is_null() {
-                        let ret = avio_close((*self.ctx).pb);
-                        bail_ffmpeg!(ret);
+        unsafe {
+            if !self.ctx.is_null() {
+                match self.output {
+                    MuxerOutput::Url(_) => {
+                        if !(*self.ctx).pb.is_null() {
+                            let ret = avio_close((*self.ctx).pb);
+                            bail_ffmpeg!(ret);
+                        }
+                    }
+                    MuxerOutput::WriterSeeker(_) => {
+                        av_free((*(*self.ctx).pb).buffer as *mut _);
+                        drop(SlimBox::<dyn WriteSeek>::from_raw((*(*self.ctx).pb).opaque));
+                        avio_context_free(&mut (*self.ctx).pb);
+                    }
+                    MuxerOutput::Writer(_) => {
+                        av_free((*(*self.ctx).pb).buffer as *mut _);
+                        drop(SlimBox::<dyn Write>::from_raw((*(*self.ctx).pb).opaque));
+                        avio_context_free(&mut (*self.ctx).pb);
                     }
                 }
-                MuxerOutput::WriterSeeker(_) => {
-                    av_free((*(*self.ctx).pb).buffer as *mut _);
-                    drop(SlimBox::<dyn WriteSeek>::from_raw((*(*self.ctx).pb).opaque));
-                    avio_context_free(&mut (*self.ctx).pb);
-                }
-                MuxerOutput::Writer(_) => {
-                    av_free((*(*self.ctx).pb).buffer as *mut _);
-                    drop(SlimBox::<dyn Write>::from_raw((*(*self.ctx).pb).opaque));
-                    avio_context_free(&mut (*self.ctx).pb);
-                }
+                avformat_free_context(self.ctx);
+                self.ctx = ptr::null_mut();
             }
-            avformat_free_context(self.ctx);
-            self.ctx = ptr::null_mut();
+            Ok(())
         }
-        Ok(())
     }
 }
 
@@ -408,56 +439,60 @@ impl Drop for Muxer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Scaler, generate_test_frame};
+    use crate::{AvFrameRef, Scaler, generate_test_frame};
     use ffmpeg_sys_the_third::AVCodecID::AV_CODEC_ID_H264;
     use ffmpeg_sys_the_third::AVPixelFormat::AV_PIX_FMT_YUV420P;
-    use ffmpeg_sys_the_third::{AV_PROFILE_H264_MAIN, AVFrame};
+    use ffmpeg_sys_the_third::AV_PROFILE_H264_MAIN;
     use std::path::PathBuf;
 
-    unsafe fn setup_encoder() -> Result<(*mut AVFrame, Encoder)> {
-        std::fs::create_dir_all("test_output")?;
-        let frame = generate_test_frame();
+    unsafe fn setup_encoder() -> Result<(AvFrameRef, Encoder)> {
+        unsafe {
+            std::fs::create_dir_all("test_output")?;
+            let frame = generate_test_frame();
 
-        // convert frame to YUV
-        let mut scaler = Scaler::new();
-        let frame = scaler.process_frame(
-            frame,
-            (*frame).width as u16,
-            (*frame).height as u16,
-            AV_PIX_FMT_YUV420P,
-        )?;
+            // convert frame to YUV
+            let mut scaler = Scaler::new();
+            let frame = scaler.process_frame(
+                &frame,
+                frame.width as u16,
+                frame.height as u16,
+                AV_PIX_FMT_YUV420P,
+            )?;
 
-        let encoder = Encoder::new(AV_CODEC_ID_H264)?
-            .with_width((*frame).width)
-            .with_height((*frame).height)
-            .with_pix_fmt(AV_PIX_FMT_YUV420P)
-            .with_bitrate(1_000_000)
-            .with_framerate(30.0)?
-            .with_profile(AV_PROFILE_H264_MAIN)
-            .with_level(50)
-            .open(None)?;
-        Ok((frame, encoder))
+            let encoder = Encoder::new(AV_CODEC_ID_H264)?
+                .with_width(frame.width)
+                .with_height(frame.height)
+                .with_pix_fmt(AV_PIX_FMT_YUV420P)
+                .with_bitrate(1_000_000)
+                .with_framerate(30.0)?
+                .with_profile(AV_PROFILE_H264_MAIN)
+                .with_level(50)
+                .open(None)?;
+            Ok((frame, encoder))
+        }
     }
 
     unsafe fn write_frames(
         muxer: &mut Muxer,
         mut encoder: Encoder,
-        frame: *mut AVFrame,
+        frame: &AvFrameRef,
     ) -> Result<()> {
-        let mut pts = 0;
-        for _z in 0..90 {
-            (*frame).pts = pts;
-            for pkt in encoder.encode_frame(frame)? {
-                muxer.write_packet(pkt)?;
+        unsafe {
+            let mut pts = 0;
+            for _z in 0..90 {
+                (*frame.ptr()).pts = pts;
+                for pkt in encoder.encode_frame(Some(frame))? {
+                    muxer.write_packet(&pkt)?;
+                }
+                pts += 1;
             }
-            pts += 1;
+            // flush
+            for f_pk in encoder.encode_frame(None)? {
+                muxer.write_packet(&f_pk)?;
+            }
+            muxer.close()?;
+            Ok(())
         }
-        // flush
-        for f_pk in encoder.encode_frame(ptr::null_mut())? {
-            muxer.write_packet(f_pk)?;
-        }
-        muxer.close()?;
-        Ok(())
     }
 
     #[test]
@@ -472,7 +507,7 @@ mod tests {
                 .with_stream_encoder(&encoder)?
                 .build()?;
             muxer.open(None)?;
-            write_frames(&mut muxer, encoder, frame)?;
+            write_frames(&mut muxer, encoder, &frame)?;
         }
         Ok(())
     }
@@ -489,7 +524,7 @@ mod tests {
                 .with_stream_encoder(&encoder)?
                 .build()?;
             muxer.open(None)?;
-            write_frames(&mut muxer, encoder, frame)?;
+            write_frames(&mut muxer, encoder, &frame)?;
 
             let path2 = PathBuf::from("test_output/test_muxer_reinit_2.mp4");
             let (frame, encoder) = setup_encoder()?;
@@ -497,7 +532,7 @@ mod tests {
             muxer.init()?;
             muxer.add_stream_encoder(&encoder)?;
             muxer.open(None)?;
-            write_frames(&mut muxer, encoder, frame)?;
+            write_frames(&mut muxer, encoder, &frame)?;
         }
         Ok(())
     }
@@ -515,7 +550,7 @@ mod tests {
                 .with_stream_encoder(&encoder)?
                 .build()?;
             muxer.open(None)?;
-            write_frames(&mut muxer, encoder, frame)?;
+            write_frames(&mut muxer, encoder, &frame)?;
         }
         Ok(())
     }
@@ -533,7 +568,7 @@ mod tests {
                 .with_stream_encoder(&encoder)?
                 .build()?;
             muxer.open(None)?;
-            write_frames(&mut muxer, encoder, frame)?;
+            write_frames(&mut muxer, encoder, &frame)?;
         }
         Ok(())
     }

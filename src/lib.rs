@@ -1,8 +1,7 @@
 use anyhow::Error;
 use ffmpeg_sys_the_third::{
-    AV_OPT_SEARCH_CHILDREN, AVDictionary, AVFrame, AVOption, av_dict_set, av_frame_alloc,
-    av_frame_copy_props, av_frame_free, av_hwframe_transfer_data, av_make_error_string,
-    av_opt_next, av_opt_set,
+    AV_OPT_SEARCH_CHILDREN, AVDictionary, AVOption, av_dict_set, av_frame_alloc,
+    av_frame_copy_props, av_hwframe_transfer_data, av_make_error_string, av_opt_next, av_opt_set,
 };
 use std::collections::HashMap;
 use std::ptr;
@@ -12,6 +11,7 @@ mod decode;
 mod demux;
 mod encode;
 mod filter;
+mod frame;
 mod mux;
 mod resample;
 mod scale;
@@ -25,23 +25,23 @@ compile_error!("avutil version too old, <57.24");
 
 #[macro_export]
 macro_rules! bail_ffmpeg {
-    ($x:expr) => {
+    ($x:expr_2021) => {
         if $x < 0 {
             anyhow::bail!($crate::get_ffmpeg_error_msg($x))
         }
     };
-    ($x:expr,$clean:block) => {
+    ($x:expr_2021,$clean:block) => {
         if $x < 0 {
             $clean;
             anyhow::bail!($crate::get_ffmpeg_error_msg($x))
         }
     };
-    ($x:expr,$msg:expr) => {
+    ($x:expr_2021,$msg:expr_2021) => {
         if $x < 0 {
             anyhow::bail!(format!("{}: {}", $msg, $crate::get_ffmpeg_error_msg($x)))
         }
     };
-    ($x:expr,$msg:expr,$clean:block) => {
+    ($x:expr_2021,$msg:expr_2021,$clean:block) => {
         if $x < 0 {
             $clean;
             anyhow::bail!(format!("{}: {}", $msg, $crate::get_ffmpeg_error_msg($x)))
@@ -51,14 +51,14 @@ macro_rules! bail_ffmpeg {
 
 #[macro_export]
 macro_rules! cstr {
-    ($str:expr) => {
+    ($str:expr_2021) => {
         std::ffi::CString::new($str).unwrap().into_raw()
     };
 }
 
 #[macro_export]
 macro_rules! rstr {
-    ($str:expr) => {
+    ($str:expr_2021) => {
         if !$str.is_null() {
             core::ffi::CStr::from_ptr($str).to_str().unwrap()
         } else {
@@ -68,14 +68,14 @@ macro_rules! rstr {
 }
 
 /// Version dependant [AVFrame].duration
-pub unsafe fn get_frame_duration(frame: *mut AVFrame) -> i64 {
+pub fn get_frame_duration(frame: &AvFrameRef) -> i64 {
     #[cfg(feature = "avutil_version_greater_than_57_30")]
-    return (*frame).duration;
+    return frame.duration;
     #[cfg(all(
         feature = "avcodec_version_greater_than_54_24",
         not(feature = "avutil_version_greater_than_57_30")
     ))]
-    return (*frame).pkt_duration;
+    return frame.pkt_duration;
     #[cfg(all(
         not(feature = "avcodec_version_greater_than_54_24"),
         not(feature = "avutil_version_greater_than_57_30")
@@ -96,28 +96,30 @@ pub unsafe extern "C" fn av_log_redirect(
     fmt: *const libc::c_char,
     args: VaList,
 ) {
-    use ffmpeg_sys_the_third::*;
-    let log_level = match level {
-        AV_LOG_DEBUG => log::Level::Debug,
-        AV_LOG_WARNING => log::Level::Warn,
-        AV_LOG_INFO => log::Level::Info,
-        AV_LOG_ERROR => log::Level::Error,
-        AV_LOG_PANIC => log::Level::Error,
-        AV_LOG_FATAL => log::Level::Error,
-        _ => log::Level::Trace,
-    };
-    let mut buf: [u8; 1024] = [0; 1024];
-    let mut prefix: libc::c_int = 1;
-    av_log_format_line(
-        av_class,
-        level,
-        fmt,
-        args,
-        buf.as_mut_ptr() as *mut libc::c_char,
-        1024,
-        ptr::addr_of_mut!(prefix),
-    );
-    log!(target: "ffmpeg", log_level, "{}", rstr!(buf.as_ptr() as *const libc::c_char).trim());
+    unsafe {
+        use ffmpeg_sys_the_third::*;
+        let log_level = match level {
+            AV_LOG_DEBUG => log::Level::Debug,
+            AV_LOG_WARNING => log::Level::Warn,
+            AV_LOG_INFO => log::Level::Info,
+            AV_LOG_ERROR => log::Level::Error,
+            AV_LOG_PANIC => log::Level::Error,
+            AV_LOG_FATAL => log::Level::Error,
+            _ => log::Level::Trace,
+        };
+        let mut buf: [u8; 1024] = [0; 1024];
+        let mut prefix: libc::c_int = 1;
+        av_log_format_line(
+            av_class,
+            level,
+            fmt,
+            args,
+            buf.as_mut_ptr() as *mut libc::c_char,
+            1024,
+            ptr::addr_of_mut!(prefix),
+        );
+        log!(target: "ffmpeg", log_level, "{}", rstr!(buf.as_ptr() as *const libc::c_char).trim());
+    }
 }
 
 pub(crate) const AVIO_BUFFER_SIZE: usize = 4096;
@@ -132,16 +134,18 @@ fn get_ffmpeg_error_msg(ret: libc::c_int) -> String {
 }
 
 unsafe fn options_to_dict(options: HashMap<String, String>) -> Result<*mut AVDictionary, Error> {
-    let mut dict = ptr::null_mut();
-    for (key, value) in options {
-        let key_cstr = cstr!(key);
-        let value_cstr = cstr!(value);
-        let ret = av_dict_set(&mut dict, key_cstr, value_cstr, 0);
-        libc::free(key_cstr as *mut libc::c_void);
-        libc::free(value_cstr as *mut libc::c_void);
-        bail_ffmpeg!(ret);
+    unsafe {
+        let mut dict = ptr::null_mut();
+        for (key, value) in options {
+            let key_cstr = cstr!(key);
+            let value_cstr = cstr!(value);
+            let ret = av_dict_set(&mut dict, key_cstr, value_cstr, 0);
+            libc::free(key_cstr as *mut libc::c_void);
+            libc::free(value_cstr as *mut libc::c_void);
+            bail_ffmpeg!(ret);
+        }
+        Ok(dict)
     }
-    Ok(dict)
 }
 
 /// Format seconds value into human-readable string
@@ -199,47 +203,50 @@ fn set_opts(ctx: *mut libc::c_void, options: HashMap<String, String>) -> Result<
 }
 
 /// Get the frame as CPU frame
-pub unsafe fn get_frame_from_hw(mut frame: *mut AVFrame) -> Result<*mut AVFrame, Error> {
-    if (*frame).hw_frames_ctx.is_null() {
+pub fn get_frame_from_hw(frame: AvFrameRef) -> Result<AvFrameRef, Error> {
+    if frame.hw_frames_ctx.is_null() {
         Ok(frame)
     } else {
-        let new_frame = av_frame_alloc();
-        let ret = av_hwframe_transfer_data(new_frame, frame, 0);
-        bail_ffmpeg!(ret);
-        av_frame_copy_props(new_frame, frame);
-        av_frame_free(&mut frame);
-        Ok(new_frame)
+        unsafe {
+            let new_frame = av_frame_alloc();
+            let ret = av_hwframe_transfer_data(new_frame, frame.ptr(), 0);
+            bail_ffmpeg!(ret);
+            av_frame_copy_props(new_frame, frame.ptr());
+            Ok(AvFrameRef::new(new_frame))
+        }
     }
 }
 
 #[cfg(test)]
-pub unsafe fn generate_test_frame() -> *mut AVFrame {
-    use ffmpeg_sys_the_third::{AVPixelFormat, av_frame_get_buffer};
-    use std::mem::transmute;
+pub unsafe fn generate_test_frame() -> AvFrameRef {
+    unsafe {
+        use ffmpeg_sys_the_third::{AVPixelFormat, av_frame_get_buffer};
+        use std::mem::transmute;
 
-    let frame = av_frame_alloc();
-    (*frame).width = 1024;
-    (*frame).height = 1024;
-    (*frame).format = transmute(AVPixelFormat::AV_PIX_FMT_RGB24);
-    av_frame_get_buffer(frame, 0);
+        let frame = av_frame_alloc();
+        (*frame).width = 1024;
+        (*frame).height = 1024;
+        (*frame).format = transmute(AVPixelFormat::AV_PIX_FMT_RGB24);
+        av_frame_get_buffer(frame, 0);
 
-    let mut lx = 0;
-    for line in 0..(*frame).height {
-        let c = lx % 3;
-        for y in 0..(*frame).width as usize {
-            let ptr = (*frame).data[0];
-            let offset = (line * (*frame).linesize[0]) as usize + (y * 3);
-            match c {
-                0 => *ptr.add(offset) = 0xff,
-                1 => *ptr.add(offset + 1) = 0xff,
-                2 => *ptr.add(offset + 2) = 0xff,
-                _ => {}
+        let mut lx = 0;
+        for line in 0..(*frame).height {
+            let c = lx % 3;
+            for y in 0..(*frame).width as usize {
+                let ptr = (*frame).data[0];
+                let offset = (line * (*frame).linesize[0]) as usize + (y * 3);
+                match c {
+                    0 => *ptr.add(offset) = 0xff,
+                    1 => *ptr.add(offset + 1) = 0xff,
+                    2 => *ptr.add(offset + 2) = 0xff,
+                    _ => {}
+                }
             }
+            lx += 1;
         }
-        lx += 1;
-    }
 
-    frame
+        AvFrameRef::new(frame)
+    }
 }
 
 pub use audio_fifo::*;
@@ -248,6 +255,7 @@ pub use demux::*;
 pub use encode::*;
 pub use ffmpeg_sys_the_third;
 pub use filter::*;
+pub use frame::*;
 use log::log;
 pub use mux::*;
 pub use resample::*;

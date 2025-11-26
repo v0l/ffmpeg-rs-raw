@@ -1,4 +1,4 @@
-use crate::{StreamInfo, bail_ffmpeg, get_ffmpeg_error_msg, rstr};
+use crate::{AvFrameRef, AvPacketRef, StreamInfo, bail_ffmpeg, get_ffmpeg_error_msg, rstr};
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
@@ -7,11 +7,11 @@ use std::ptr;
 use anyhow::{Error, bail};
 use ffmpeg_sys_the_third::{
     AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX, AVCodec, AVCodecContext, AVCodecHWConfig, AVCodecID,
-    AVERROR, AVERROR_EOF, AVFrame, AVHWDeviceType, AVPacket, AVStream, av_buffer_ref,
-    av_frame_alloc, av_frame_free, av_hwdevice_ctx_create, av_hwdevice_get_type_name,
-    av_hwdevice_iterate_types, avcodec_alloc_context3, avcodec_find_decoder, avcodec_free_context,
-    avcodec_get_hw_config, avcodec_get_name, avcodec_open2, avcodec_parameters_to_context,
-    avcodec_receive_frame, avcodec_send_packet,
+    AVERROR, AVERROR_EOF, AVHWDeviceType, AVPacket, AVStream, av_buffer_ref, av_frame_alloc,
+    av_frame_free, av_hwdevice_ctx_create, av_hwdevice_get_type_name, av_hwdevice_iterate_types,
+    avcodec_alloc_context3, avcodec_find_decoder, avcodec_free_context, avcodec_get_hw_config,
+    avcodec_get_name, avcodec_open2, avcodec_parameters_to_context, avcodec_receive_frame,
+    avcodec_send_packet,
 };
 use log::{trace, warn};
 
@@ -133,22 +133,24 @@ impl Decoder {
     pub unsafe fn list_supported_hw_accel(
         &self,
         codec: *const AVCodec,
-    ) -> impl Iterator<Item = AVHWDeviceType> {
-        let mut hw_config = ptr::null();
-        let mut i = 0;
-        let mut ret = Vec::new();
-        loop {
-            hw_config = avcodec_get_hw_config(codec, i);
-            i += 1;
-            if hw_config.is_null() {
-                break;
+    ) -> impl Iterator<Item = AVHWDeviceType> + use<> {
+        unsafe {
+            let mut hw_config = ptr::null();
+            let mut i = 0;
+            let mut ret = Vec::new();
+            loop {
+                hw_config = avcodec_get_hw_config(codec, i);
+                i += 1;
+                if hw_config.is_null() {
+                    break;
+                }
+                let hw_flag = AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX as libc::c_int;
+                if (*hw_config).methods & hw_flag == hw_flag {
+                    ret.push((*hw_config).device_type);
+                }
             }
-            let hw_flag = AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX as libc::c_int;
-            if (*hw_config).methods & hw_flag == hw_flag {
-                ret.push((*hw_config).device_type);
-            }
+            ret.into_iter()
         }
-        ret.into_iter()
     }
 
     /// Set up a decoder from an [AVStream]
@@ -157,32 +159,36 @@ impl Decoder {
         stream: *mut AVStream,
         options: Option<HashMap<String, String>>,
     ) -> Result<&mut DecoderCodecContext, Error> {
-        if stream.is_null() {
-            anyhow::bail!("stream is null");
+        unsafe {
+            if stream.is_null() {
+                anyhow::bail!("stream is null");
+            }
+
+            let codec_par = (*stream).codecpar;
+            assert_ne!(
+                codec_par,
+                ptr::null_mut(),
+                "Codec parameters are missing from stream"
+            );
+
+            let ctx = self.add_decoder((*codec_par).codec_id, (*stream).index)?;
+            let ret = avcodec_parameters_to_context(ctx.context, (*stream).codecpar);
+            bail_ffmpeg!(ret, "Failed to copy codec parameters to context");
+
+            let stream_index = (*stream).index;
+            self.open_decoder_codec_by_index(stream_index, options)?;
+            Ok(self.codecs.get_mut(&stream_index).unwrap())
         }
-
-        let codec_par = (*stream).codecpar;
-        assert_ne!(
-            codec_par,
-            ptr::null_mut(),
-            "Codec parameters are missing from stream"
-        );
-
-        let ctx = self.add_decoder((*codec_par).codec_id, (*stream).index)?;
-        let ret = avcodec_parameters_to_context(ctx.context, (*stream).codecpar);
-        bail_ffmpeg!(ret, "Failed to copy codec parameters to context");
-
-        let stream_index = (*stream).index;
-        self.open_decoder_codec_by_index(stream_index, options)?;
-        Ok(self.codecs.get_mut(&stream_index).unwrap())
     }
 
     /// Open a decoder codec after parameters are set
     pub unsafe fn open_decoder_codec(&mut self, ctx: &DecoderCodecContext) -> Result<(), Error> {
-        let mut dict = ptr::null_mut();
-        let ret = avcodec_open2(ctx.context, ctx.codec, &mut dict);
-        bail_ffmpeg!(ret, "Failed to open codec");
-        Ok(())
+        unsafe {
+            let mut dict = ptr::null_mut();
+            let ret = avcodec_open2(ctx.context, ctx.codec, &mut dict);
+            bail_ffmpeg!(ret, "Failed to open codec");
+            Ok(())
+        }
     }
 
     /// Open a decoder codec by stream index
@@ -191,17 +197,19 @@ impl Decoder {
         stream_index: i32,
         options: Option<HashMap<String, String>>,
     ) -> Result<(), Error> {
-        if let Some(ctx) = self.codecs.get(&stream_index) {
-            let mut dict = if let Some(options) = options {
-                crate::options_to_dict(options)?
+        unsafe {
+            if let Some(ctx) = self.codecs.get(&stream_index) {
+                let mut dict = if let Some(options) = options {
+                    crate::options_to_dict(options)?
+                } else {
+                    ptr::null_mut()
+                };
+                let ret = avcodec_open2(ctx.context, ctx.codec, &mut dict);
+                bail_ffmpeg!(ret, "Failed to open codec");
+                Ok(())
             } else {
-                ptr::null_mut()
-            };
-            let ret = avcodec_open2(ctx.context, ctx.codec, &mut dict);
-            bail_ffmpeg!(ret, "Failed to open codec");
-            Ok(())
-        } else {
-            bail!("Decoder not found for stream index {}", stream_index)
+                bail!("Decoder not found for stream index {}", stream_index)
+            }
         }
     }
 
@@ -211,114 +219,122 @@ impl Decoder {
         codec_id: AVCodecID,
         stream_index: i32,
     ) -> Result<&mut DecoderCodecContext, Error> {
-        if let Entry::Vacant(e) = self.codecs.entry(stream_index) {
-            let codec = avcodec_find_decoder(codec_id);
-            if codec.is_null() {
-                bail!(
-                    "Failed to find codec: {}",
-                    rstr!(avcodec_get_name(codec_id))
-                )
-            }
-            let context = avcodec_alloc_context3(codec);
-            if context.is_null() {
-                bail!("Failed to alloc context")
-            }
+        unsafe {
+            if let Entry::Vacant(e) = self.codecs.entry(stream_index) {
+                let codec = avcodec_find_decoder(codec_id);
+                if codec.is_null() {
+                    bail!(
+                        "Failed to find codec: {}",
+                        rstr!(avcodec_get_name(codec_id))
+                    )
+                }
+                let context = avcodec_alloc_context3(codec);
+                if context.is_null() {
+                    bail!("Failed to alloc context")
+                }
 
-            let codec_name = rstr!(avcodec_get_name((*codec).id));
-            // try use HW decoder
-            let mut hw_config = ptr::null();
-            if let Some(ref hw_types) = self.hw_decoder_types {
-                let mut hw_buf_ref = ptr::null_mut();
-                let mut i = 0;
-                loop {
-                    hw_config = avcodec_get_hw_config(codec, i);
-                    i += 1;
-                    if hw_config.is_null() {
-                        break;
-                    }
-                    let hw_name = rstr!(av_hwdevice_get_type_name((*hw_config).device_type));
-                    if !hw_types.contains(&(*hw_config).device_type) {
-                        trace!("skipping hwaccel={}_{}", codec_name, hw_name);
-                        continue;
-                    }
-                    let hw_flag = AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX as libc::c_int;
-                    if (*hw_config).methods & hw_flag == hw_flag {
-                        let ret = av_hwdevice_ctx_create(
-                            &mut hw_buf_ref,
-                            (*hw_config).device_type,
-                            ptr::null_mut(),
-                            ptr::null_mut(),
-                            0,
-                        );
-                        if ret < 0 {
-                            warn!(
-                                "Failed to create hardware context {}, continuing without hwaccel: {}",
-                                hw_name,
-                                get_ffmpeg_error_msg(ret)
-                            );
+                let codec_name = rstr!(avcodec_get_name((*codec).id));
+                // try use HW decoder
+                let mut hw_config = ptr::null();
+                if let Some(ref hw_types) = self.hw_decoder_types {
+                    let mut hw_buf_ref = ptr::null_mut();
+                    let mut i = 0;
+                    loop {
+                        hw_config = avcodec_get_hw_config(codec, i);
+                        i += 1;
+                        if hw_config.is_null() {
+                            break;
+                        }
+                        let hw_name = rstr!(av_hwdevice_get_type_name((*hw_config).device_type));
+                        if !hw_types.contains(&(*hw_config).device_type) {
+                            trace!("skipping hwaccel={}_{}", codec_name, hw_name);
                             continue;
                         }
-                        (*context).hw_device_ctx = av_buffer_ref(hw_buf_ref);
-                        break;
+                        let hw_flag = AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX as libc::c_int;
+                        if (*hw_config).methods & hw_flag == hw_flag {
+                            let ret = av_hwdevice_ctx_create(
+                                &mut hw_buf_ref,
+                                (*hw_config).device_type,
+                                ptr::null_mut(),
+                                ptr::null_mut(),
+                                0,
+                            );
+                            if ret < 0 {
+                                warn!(
+                                    "Failed to create hardware context {}, continuing without hwaccel: {}",
+                                    hw_name,
+                                    get_ffmpeg_error_msg(ret)
+                                );
+                                continue;
+                            }
+                            (*context).hw_device_ctx = av_buffer_ref(hw_buf_ref);
+                            break;
+                        }
                     }
                 }
+                let ctx = DecoderCodecContext {
+                    context,
+                    codec,
+                    hw_config,
+                    stream_index,
+                };
+                trace!("setup decoder={}", ctx);
+                Ok(e.insert(ctx))
+            } else {
+                bail!("Decoder already setup");
             }
-            let ctx = DecoderCodecContext {
-                context,
-                codec,
-                hw_config,
-                stream_index,
-            };
-            trace!("setup decoder={}", ctx);
-            Ok(e.insert(ctx))
-        } else {
-            bail!("Decoder already setup");
         }
     }
 
     /// Flush all decoders
-    pub unsafe fn flush(&mut self) -> Result<Vec<(*mut AVFrame, i32)>, Error> {
-        let mut pkgs = Vec::new();
-        for ctx in self.codecs.values_mut() {
-            pkgs.extend(Self::decode_pkt_internal(ctx, ptr::null_mut())?);
+    pub unsafe fn flush(&mut self) -> Result<Vec<(AvFrameRef, i32)>, Error> {
+        unsafe {
+            let mut pkgs = Vec::new();
+            for ctx in self.codecs.values_mut() {
+                pkgs.extend(Self::decode_pkt_internal(ctx, ptr::null_mut())?);
+            }
+            Ok(pkgs)
         }
-        Ok(pkgs)
     }
 
     pub unsafe fn decode_pkt_internal(
         ctx: &DecoderCodecContext,
         pkt: *mut AVPacket,
-    ) -> Result<Vec<(*mut AVFrame, i32)>, Error> {
-        let mut ret = avcodec_send_packet(ctx.context, pkt);
-        bail_ffmpeg!(ret, "Failed to decode packet");
+    ) -> Result<Vec<(AvFrameRef, i32)>, Error> {
+        unsafe {
+            let mut ret = avcodec_send_packet(ctx.context, pkt);
+            bail_ffmpeg!(ret, "Failed to decode packet");
 
-        let mut pkgs = Vec::new();
-        while ret >= 0 {
-            let mut frame = av_frame_alloc();
-            ret = avcodec_receive_frame(ctx.context, frame);
-            if ret < 0 {
-                av_frame_free(&mut frame);
-                if ret == AVERROR_EOF || ret == AVERROR(libc::EAGAIN) {
-                    break;
+            let mut pkgs = Vec::new();
+            while ret >= 0 {
+                let frame = av_frame_alloc();
+                ret = avcodec_receive_frame(ctx.context, frame);
+                if ret < 0 {
+                    av_frame_free(&mut (frame as *mut _));
+                    if ret == AVERROR_EOF || ret == AVERROR(libc::EAGAIN) {
+                        break;
+                    }
+                    return Err(Error::msg(format!("Failed to decode {}", ret)));
                 }
-                return Err(Error::msg(format!("Failed to decode {}", ret)));
+                pkgs.push((AvFrameRef::new(frame), ctx.stream_index));
             }
-            pkgs.push((frame, ctx.stream_index));
+            Ok(pkgs)
         }
-        Ok(pkgs)
     }
 
-    pub unsafe fn decode_pkt(
+    pub fn decode_pkt(
         &mut self,
-        pkt: *mut AVPacket,
-    ) -> Result<Vec<(*mut AVFrame, i32)>, Error> {
-        if pkt.is_null() {
-            return self.flush();
-        }
-        if let Some(ctx) = self.codecs.get_mut(&(*pkt).stream_index) {
-            Self::decode_pkt_internal(ctx, pkt)
-        } else {
-            Ok(vec![])
+        pkt: Option<&AvPacketRef>,
+    ) -> Result<Vec<(AvFrameRef, i32)>, Error> {
+        match pkt {
+            None => unsafe { self.flush() },
+            Some(pkt) => {
+                if let Some(ctx) = self.codecs.get_mut(&pkt.stream_index) {
+                    unsafe { Self::decode_pkt_internal(ctx, pkt.ptr()) }
+                } else {
+                    Ok(vec![])
+                }
+            }
         }
     }
 }
@@ -327,28 +343,24 @@ impl Decoder {
 mod tests {
     use super::*;
     use crate::Demuxer;
-    use ffmpeg_sys_the_third::av_packet_free;
 
     #[test]
     fn decode_files() -> anyhow::Result<()> {
-        unsafe {
-            let files = std::fs::read_dir("./test_output/").unwrap();
-            for file in files.into_iter() {
-                let mut mux = Demuxer::new(file.unwrap().path().to_str().unwrap())?;
-                let probe = mux.probe_input()?;
-                let mut decoder = Decoder::new();
-                for stream in probe.streams.iter() {
-                    decoder.setup_decoder(stream, None)?;
+        let files = std::fs::read_dir("./test_output/").unwrap();
+        for file in files.into_iter() {
+            let mut mux = Demuxer::new(file.unwrap().path().to_str().unwrap())?;
+            let probe = unsafe { mux.probe_input()? };
+            let mut decoder = Decoder::new();
+            for stream in probe.streams.iter() {
+                decoder.setup_decoder(stream, None)?;
+            }
+            loop {
+                let (pkt, _) = unsafe { mux.get_packet()? };
+                if pkt.is_none() {
+                    break;
                 }
-                loop {
-                    let (mut pkt, _) = mux.get_packet()?;
-                    if pkt.is_null() {
-                        break;
-                    }
 
-                    decoder.decode_pkt(pkt)?;
-                    av_packet_free(&mut pkt);
-                }
+                decoder.decode_pkt(pkt.as_ref())?;
             }
         }
         Ok(())
