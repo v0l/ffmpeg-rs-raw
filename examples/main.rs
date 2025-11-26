@@ -42,11 +42,9 @@ fn decode_input(demuxer: Demuxer, info: DemuxerInfo) {
     decoder.enable_hw_decoder_any();
 
     for ref stream in info.streams {
-        unsafe {
-            decoder
-                .setup_decoder(stream, None)
-                .expect("decoder setup failed");
-        }
+        decoder
+            .setup_decoder(stream, None)
+            .expect("decoder setup failed");
     }
     loop_decoder(demuxer, decoder);
 }

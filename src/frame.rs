@@ -1,7 +1,7 @@
 use crate::ffmpeg_sys_the_third::{
     AVFrame, AVPacket, av_frame_clone, av_frame_free, av_packet_clone, av_packet_free,
 };
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 
 /// Safe wrapper around AVFrame
 pub struct AvFrameRef {
@@ -31,6 +31,12 @@ impl Deref for AvFrameRef {
 
     fn deref(&self) -> &Self::Target {
         unsafe { &*self.frame }
+    }
+}
+
+impl DerefMut for AvFrameRef {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { &mut *self.frame }
     }
 }
 
@@ -76,6 +82,12 @@ impl Deref for AvPacketRef {
 
     fn deref(&self) -> &Self::Target {
         unsafe { &*self.packet }
+    }
+}
+
+impl DerefMut for AvPacketRef {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { &mut *self.packet }
     }
 }
 
