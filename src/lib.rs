@@ -1,7 +1,7 @@
 use anyhow::Error;
 use ffmpeg_sys_the_third::{
     AV_OPT_SEARCH_CHILDREN, AVDictionary, AVOption, av_dict_set, av_frame_alloc,
-    av_frame_copy_props, av_hwframe_transfer_data, av_make_error_string, av_opt_next, av_opt_set,
+    av_frame_copy_props, av_hwframe_transfer_data, av_opt_next, av_opt_set, av_strerror,
 };
 use std::collections::HashMap;
 use std::ptr;
@@ -118,17 +118,20 @@ pub unsafe extern "C" fn av_log_redirect(
             1024,
             ptr::addr_of_mut!(prefix),
         );
-        log!(target: "ffmpeg", log_level, "{}", rstr!(buf.as_ptr() as *const libc::c_char).trim());
+        #[allow(useless_ptr_null_checks)]
+        let line = rstr!(buf.as_ptr() as *const libc::c_char).trim();
+        log!(target: "ffmpeg", log_level, "{}", line);
     }
 }
 
 pub(crate) const AVIO_BUFFER_SIZE: usize = 4096;
 
-fn get_ffmpeg_error_msg(ret: libc::c_int) -> String {
+pub fn get_ffmpeg_error_msg(ret: libc::c_int) -> String {
     unsafe {
         const BUF_SIZE: usize = 512;
         let mut buf: [libc::c_char; BUF_SIZE] = [0; BUF_SIZE];
-        av_make_error_string(buf.as_mut_ptr(), BUF_SIZE, ret);
+        av_strerror(ret, buf.as_mut_ptr(), BUF_SIZE);
+        #[allow(useless_ptr_null_checks)]
         rstr!(buf.as_ptr()).to_string()
     }
 }
