@@ -2,7 +2,7 @@ use crate::{AVIO_BUFFER_SIZE, AvPacketRef, Encoder, bail_ffmpeg, cstr, set_opts}
 use anyhow::{Result, bail};
 use ffmpeg_sys_the_third::{
     AV_CODEC_FLAG_GLOBAL_HEADER, AVERROR_EOF, AVFMT_GLOBALHEADER, AVFMT_NOFILE, AVFormatContext,
-    AVIO_FLAG_DIRECT, AVIO_FLAG_WRITE, AVIOContext, AVStream, av_free, av_interleaved_write_frame,
+    AVIO_FLAG_DIRECT, AVIO_FLAG_WRITE, AVIOContext, AVStream, av_freep, av_interleaved_write_frame,
     av_mallocz, av_packet_rescale_ts, av_write_trailer, avcodec_parameters_copy,
     avcodec_parameters_from_context, avformat_alloc_output_context2, avformat_free_context,
     avformat_new_stream, avformat_write_header, avio_alloc_context, avio_close, avio_context_free,
@@ -404,20 +404,28 @@ impl Muxer {
             if !self.ctx.is_null() {
                 match self.output {
                     MuxerOutput::Url(_) => {
-                        if !(*self.ctx).pb.is_null() {
-                            let ret = avio_close((*self.ctx).pb);
+                        let io = (*self.ctx).pb;
+                        if !io.is_null() {
+                            let ret = avio_close(io);
                             bail_ffmpeg!(ret);
+                            (*self.ctx).pb = ptr::null_mut();
                         }
                     }
                     MuxerOutput::WriterSeeker(_) => {
-                        av_free((*(*self.ctx).pb).buffer as *mut _);
-                        drop(SlimBox::<dyn WriteSeek>::from_raw((*(*self.ctx).pb).opaque));
-                        avio_context_free(&mut (*self.ctx).pb);
+                        let mut io = (*self.ctx).pb;
+                        if !io.is_null() {
+                            av_freep((*io).buffer as *mut _);
+                            drop(SlimBox::<dyn WriteSeek>::from_raw((*io).opaque));
+                            avio_context_free(&mut io);
+                        }
                     }
                     MuxerOutput::Writer(_) => {
-                        av_free((*(*self.ctx).pb).buffer as *mut _);
-                        drop(SlimBox::<dyn Write>::from_raw((*(*self.ctx).pb).opaque));
-                        avio_context_free(&mut (*self.ctx).pb);
+                        let mut io = (*self.ctx).pb;
+                        if !io.is_null() {
+                            av_freep((*io).buffer as *mut _);
+                            drop(SlimBox::<dyn Write>::from_raw((*io).opaque));
+                            avio_context_free(&mut io);
+                        }
                     }
                 }
                 avformat_free_context(self.ctx);
@@ -440,9 +448,9 @@ impl Drop for Muxer {
 mod tests {
     use super::*;
     use crate::{AvFrameRef, Scaler, generate_test_frame};
+    use ffmpeg_sys_the_third::AV_PROFILE_H264_MAIN;
     use ffmpeg_sys_the_third::AVCodecID::AV_CODEC_ID_H264;
     use ffmpeg_sys_the_third::AVPixelFormat::AV_PIX_FMT_YUV420P;
-    use ffmpeg_sys_the_third::AV_PROFILE_H264_MAIN;
     use std::path::PathBuf;
 
     unsafe fn setup_encoder() -> Result<(AvFrameRef, Encoder)> {
