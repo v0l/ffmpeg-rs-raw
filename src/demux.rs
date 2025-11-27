@@ -6,7 +6,7 @@ use anyhow::{Error, Result, bail};
 #[cfg(feature = "avformat_version_greater_than_60_22")]
 use ffmpeg_sys_the_third::AVStreamGroupParamsType::AV_STREAM_GROUP_PARAMS_TILE_GRID;
 use ffmpeg_sys_the_third::*;
-use log::warn;
+use log::{error, warn};
 use slimbox::{SlimBox, SlimMut, slimbox_unsize};
 use std::collections::HashMap;
 use std::io::Read;
@@ -18,6 +18,13 @@ extern "C" fn read_data(
     dst_buffer: *mut libc::c_uchar,
     size: libc::c_int,
 ) -> libc::c_int {
+    if size >= isize::MAX as _ {
+        error!(
+            "Demuxer tried to read {} bytes which exceeds isize::MAX",
+            size
+        );
+        return AVERROR_EOF; // kill the pipeline
+    }
     let mut buffer: SlimMut<'_, dyn Read + 'static> = unsafe { SlimMut::from_raw(opaque) };
     let dst_slice: &mut [u8] = unsafe { slice::from_raw_parts_mut(dst_buffer, size as usize) };
     match buffer.read(dst_slice) {
