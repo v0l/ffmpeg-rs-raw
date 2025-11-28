@@ -18,7 +18,7 @@ extern "C" fn read_data(
     dst_buffer: *mut libc::c_uchar,
     size: libc::c_int,
 ) -> libc::c_int {
-    if size >= isize::MAX as _ {
+    if size as isize >= isize::MAX {
         error!(
             "Demuxer tried to read {} bytes which exceeds isize::MAX",
             size
@@ -122,7 +122,9 @@ impl Demuxer {
                 let ret = unsafe {
                     avformat_open_input(&mut self.ctx, input_cstr, format, ptr::null_mut())
                 };
-                bail_ffmpeg!(ret);
+                bail_ffmpeg!(ret, {
+                    free_cstr!(input_cstr);
+                });
                 Ok(())
             }
             DemuxerInput::Reader(input, url) => {
@@ -163,6 +165,9 @@ impl Demuxer {
                         avio_context_free(&mut pb);
                         avformat_free_context(ctx);
                     }
+                    if !url_cstr.is_null() {
+                        free_cstr!(url_cstr);
+                    }
                 });
                 self.ctx = ctx;
                 Ok(())
@@ -170,12 +175,13 @@ impl Demuxer {
         }
     }
 
-    pub unsafe fn probe_input(&mut self) -> Result<DemuxerInfo, Error> {
+    pub unsafe fn probe_input(&mut self) -> Result<DemuxerInfo> {
         unsafe {
             self.open()?;
-            if avformat_find_stream_info(self.ctx, ptr::null_mut()) < 0 {
-                return Err(Error::msg("Could not find stream info"));
-            }
+            let ret = avformat_find_stream_info(self.ctx, ptr::null_mut());
+            bail_ffmpeg!(ret, {
+                self.close();
+            });
 
             let mut streams = vec![];
             #[cfg(feature = "avformat_version_greater_than_60_19")]
@@ -296,13 +302,15 @@ impl Demuxer {
 
     pub unsafe fn get_packet(&mut self) -> Result<(Option<AvPacketRef>, *mut AVStream), Error> {
         unsafe {
-            let pkt = av_packet_alloc();
+            let mut pkt = av_packet_alloc();
             let ret = av_read_frame(self.ctx, pkt);
             if ret == AVERROR_EOF {
-                av_packet_free(&mut (pkt as *mut _));
+                av_packet_free(&mut pkt);
                 return Ok((None, ptr::null_mut()));
             }
-            bail_ffmpeg!(ret);
+            bail_ffmpeg!(ret, {
+                av_packet_free(&mut pkt);
+            });
 
             let stream = self.get_stream((*pkt).stream_index as _)?;
             (*pkt).time_base = (*stream).time_base;
@@ -322,10 +330,9 @@ impl Demuxer {
             Ok(*(*self.ctx).streams.add(index))
         }
     }
-}
 
-impl Drop for Demuxer {
-    fn drop(&mut self) {
+    /// Close the demuxer and free all resources
+    fn close(&mut self) {
         unsafe {
             if !self.ctx.is_null() {
                 if let DemuxerInput::Reader(_, _) = self.input {
@@ -342,9 +349,17 @@ impl Drop for Demuxer {
     }
 }
 
+impl Drop for Demuxer {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
+    use std::io::Cursor;
 
     #[cfg(feature = "avformat_version_greater_than_60_19")]
     #[ignore]
@@ -379,6 +394,202 @@ mod tests {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Test custom IO probe with PNG image data
+    #[test]
+    fn custom_io_probe_png() -> Result<()> {
+        let mut data = Vec::new();
+        File::open("./test_output/test.png")?.read_to_end(&mut data)?;
+        let reader = Cursor::new(data);
+
+        let mut demux = Demuxer::new_custom_io(reader, None)?;
+        demux.set_format("image2pipe");
+        let probe = unsafe { demux.probe_input()? };
+
+        assert_eq!(1, probe.streams.len());
+        assert_eq!(StreamType::Video, probe.streams[0].stream_type);
+        Ok(())
+    }
+
+    /// Test custom IO probe with video file
+    #[test]
+    fn custom_io_probe_video() -> Result<()> {
+        let mut data = Vec::new();
+        File::open("./test_output/test_muxer.mp4")?.read_to_end(&mut data)?;
+        let reader = Cursor::new(data);
+
+        let mut demux = Demuxer::new_custom_io(reader, None)?;
+        let probe = unsafe { demux.probe_input()? };
+
+        assert!(!probe.streams.is_empty());
+        assert!(
+            probe
+                .streams
+                .iter()
+                .any(|s| s.stream_type == StreamType::Video)
+        );
+        assert_eq!("mov,mp4,m4a,3gp,3g2,mj2", probe.format);
+        Ok(())
+    }
+
+    /// Test custom IO with URL hint for format detection
+    #[test]
+    fn custom_io_with_url_hint() -> Result<()> {
+        let mut data = Vec::new();
+        File::open("./test_output/test_muxer.mp4")?.read_to_end(&mut data)?;
+        let reader = Cursor::new(data);
+
+        let mut demux = Demuxer::new_custom_io(reader, Some("test.mp4".to_string()))?;
+        let probe = unsafe { demux.probe_input()? };
+
+        assert!(!probe.streams.is_empty());
+        assert_eq!("mov,mp4,m4a,3gp,3g2,mj2", probe.format);
+        Ok(())
+    }
+
+    /// Test custom IO with explicit format hint
+    #[test]
+    fn custom_io_with_format_hint() -> Result<()> {
+        let mut data = Vec::new();
+        File::open("./test_output/test.png")?.read_to_end(&mut data)?;
+        let reader = Cursor::new(data);
+
+        let mut demux = Demuxer::new_custom_io(reader, None)?.with_format("image2pipe");
+        let probe = unsafe { demux.probe_input()? };
+
+        assert_eq!(1, probe.streams.len());
+        assert_eq!("image2pipe", probe.format);
+        Ok(())
+    }
+
+    /// Test custom IO with custom buffer size
+    #[test]
+    fn custom_io_with_buffer_size() -> Result<()> {
+        let mut data = Vec::new();
+        File::open("./test_output/test_muxer.mp4")?.read_to_end(&mut data)?;
+        let reader = Cursor::new(data);
+
+        let mut demux = Demuxer::new_custom_io(reader, None)?.with_buffer_size(32 * 1024);
+        let probe = unsafe { demux.probe_input()? };
+
+        assert!(!probe.streams.is_empty());
+        Ok(())
+    }
+
+    /// Test custom IO read packets from video file
+    #[test]
+    fn custom_io_read_packets() -> Result<()> {
+        let mut data = Vec::new();
+        File::open("./test_output/test_muxer.mp4")?.read_to_end(&mut data)?;
+        let reader = Cursor::new(data);
+
+        let mut demux = Demuxer::new_custom_io(reader, None)?;
+        let probe = unsafe { demux.probe_input()? };
+        assert!(!probe.streams.is_empty());
+
+        // Read all packets until EOF
+        let mut packet_count = 0;
+        loop {
+            let (pkt, stream) = unsafe { demux.get_packet()? };
+            if pkt.is_none() {
+                break;
+            }
+            assert!(!stream.is_null());
+            packet_count += 1;
+        }
+        assert!(packet_count > 0, "Expected to read at least one packet");
+        Ok(())
+    }
+
+    /// Test custom IO with MKV container
+    #[test]
+    fn custom_io_probe_mkv() -> Result<()> {
+        let mut data = Vec::new();
+        File::open("./test_output/test_transcode.mkv")?.read_to_end(&mut data)?;
+        let reader = Cursor::new(data);
+
+        let mut demux = Demuxer::new_custom_io(reader, None)?;
+        let probe = unsafe { demux.probe_input()? };
+
+        assert!(!probe.streams.is_empty());
+        assert!(probe.format.contains("matroska"));
+        Ok(())
+    }
+
+    /// Test custom IO file handle leak (similar to probe_lots but for custom IO)
+    #[test]
+    fn custom_io_probe_lots() -> Result<()> {
+        rlimit::setrlimit(rlimit::Resource::NOFILE, 64, 128)?;
+
+        // Read file data once
+        let mut data = Vec::new();
+        File::open("./test_output/test_muxer.mp4")?.read_to_end(&mut data)?;
+
+        let nof_limit = rlimit::Resource::NOFILE.get_hard()?;
+        for n in 0..nof_limit {
+            let reader = Cursor::new(data.clone());
+            let mut demux = Demuxer::new_custom_io(reader, None)?;
+            unsafe {
+                if let Err(e) = demux.probe_input() {
+                    bail!("Failed on {}: {}", n, e);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Test custom IO with File directly (not Cursor)
+    #[test]
+    fn custom_io_with_file_reader() -> Result<()> {
+        let file = File::open("./test_output/test_muxer.mp4")?;
+
+        let mut demux = Demuxer::new_custom_io(file, Some("test.mp4".to_string()))?;
+        let probe = unsafe { demux.probe_input()? };
+
+        assert!(!probe.streams.is_empty());
+        assert!(
+            probe
+                .streams
+                .iter()
+                .any(|s| s.stream_type == StreamType::Video)
+        );
+        Ok(())
+    }
+
+    /// Test custom IO read packets with File reader
+    #[test]
+    fn custom_io_read_packets_file_reader() -> Result<()> {
+        let file = File::open("./test_output/test_muxer.mp4")?;
+
+        let mut demux = Demuxer::new_custom_io(file, None)?;
+        let _probe = unsafe { demux.probe_input()? };
+
+        let mut packet_count = 0;
+        loop {
+            let (pkt, _) = unsafe { demux.get_packet()? };
+            if pkt.is_none() {
+                break;
+            }
+            packet_count += 1;
+        }
+        assert!(packet_count > 0, "Expected to read at least one packet");
+        Ok(())
+    }
+
+    /// Test custom IO with MPEG-TS container
+    #[test]
+    fn custom_io_probe_ts() -> Result<()> {
+        let mut data = Vec::new();
+        File::open("./test_output/test_custom_muxer_no_seek.ts")?.read_to_end(&mut data)?;
+        let reader = Cursor::new(data);
+
+        let mut demux = Demuxer::new_custom_io(reader, None)?;
+        let probe = unsafe { demux.probe_input()? };
+
+        assert!(!probe.streams.is_empty());
+        assert!(probe.format.contains("mpegts"));
         Ok(())
     }
 }

@@ -157,13 +157,14 @@ impl MuxerBuilder {
                 ptr::null()
             };
             let ret = avformat_alloc_output_context2(ctx, ptr::null_mut(), fmt_str, dst_str);
-            if !fmt_str.is_null() {
-                free_cstr!(fmt_str as _);
-            }
-            if !dst_str.is_null() {
-                free_cstr!(dst_str as _);
-            }
-            bail_ffmpeg!(ret);
+            bail_ffmpeg!(ret, {
+                if !fmt_str.is_null() {
+                    free_cstr!(fmt_str as _);
+                }
+                if !dst_str.is_null() {
+                    free_cstr!(dst_str as _);
+                }
+            });
 
             // Setup global header flag
             if (*(**ctx).oformat).flags & AVFMT_GLOBALHEADER != 0 {
@@ -480,7 +481,7 @@ mod tests {
                 .with_bitrate(1_000_000)
                 .with_framerate(30.0)?
                 .with_profile(AV_PROFILE_H264_MAIN)
-                .with_level(50)
+                .with_level(42)
                 .open(None)?;
             Ok((frame, encoder))
         }
@@ -510,7 +511,7 @@ mod tests {
     }
 
     #[test]
-    fn encode_mkv() -> Result<()> {
+    fn encode_mp4() -> Result<()> {
         std::fs::create_dir_all("test_output")?;
         unsafe {
             let path = PathBuf::from("test_output/test_muxer.mp4");
