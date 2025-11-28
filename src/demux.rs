@@ -83,20 +83,12 @@ impl Demuxer {
 
     /// Create a new [Demuxer] from an object that implements [Read]
     pub fn new_custom_io<R: Read + 'static>(reader: R, url: Option<String>) -> Result<Self> {
-        unsafe {
-            let ctx = avformat_alloc_context();
-            if ctx.is_null() {
-                bail!("Failed to allocate AV context");
-            }
-            (*ctx).flags |= AVFMT_FLAG_CUSTOM_IO;
-
-            Ok(Self {
-                ctx,
-                input: DemuxerInput::Reader(Some(slimbox_unsize!(reader)), url),
-                buffer_size: 1024 * 16,
-                format: None,
-            })
-        }
+        Ok(Self {
+            ctx: ptr::null_mut(),
+            input: DemuxerInput::Reader(Some(slimbox_unsize!(reader)), url),
+            buffer_size: 1024 * 16,
+            format: None,
+        })
     }
 
     /// Set [AVFormatContext] options
@@ -141,6 +133,7 @@ impl Demuxer {
                 if ctx.is_null() {
                     bail!("Failed to allocate AV context");
                 }
+                unsafe { (*ctx).flags |= AVFMT_FLAG_CUSTOM_IO };
 
                 let mut pb = unsafe {
                     avio_alloc_context(
