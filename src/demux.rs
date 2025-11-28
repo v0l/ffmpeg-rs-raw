@@ -122,7 +122,6 @@ impl Demuxer {
                 let ret = unsafe {
                     avformat_open_input(&mut self.ctx, input_cstr, format, ptr::null_mut())
                 };
-                free_cstr!(input_cstr);
                 bail_ffmpeg!(ret);
                 Ok(())
             }
@@ -158,9 +157,6 @@ impl Demuxer {
                 };
                 let ret =
                     unsafe { avformat_open_input(&mut ctx, url_cstr, format, ptr::null_mut()) };
-                if !url_cstr.is_null() {
-                    free_cstr!(url_cstr);
-                }
                 bail_ffmpeg!(ret, {
                     unsafe {
                         avio_context_free(&mut pb);
