@@ -149,6 +149,7 @@ impl Demuxer {
                     unsafe { avformat_free_context(ctx) };
                     bail!("failed to allocate avio context");
                 }
+                unsafe { (*ctx).pb = pb };
 
                 let url_cstr = if let Some(url) = url {
                     cstr!(url.as_str())
@@ -163,7 +164,6 @@ impl Demuxer {
                         avformat_free_context(ctx);
                     }
                 });
-                unsafe { (*ctx).pb = pb };
                 self.ctx = ctx;
                 Ok(())
             }
