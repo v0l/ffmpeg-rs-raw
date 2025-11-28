@@ -25,23 +25,23 @@ compile_error!("avutil version too old, <57.24");
 
 #[macro_export]
 macro_rules! bail_ffmpeg {
-    ($x:expr_2021) => {
+    ($x:expr) => {
         if $x < 0 {
             anyhow::bail!($crate::get_ffmpeg_error_msg($x))
         }
     };
-    ($x:expr_2021,$clean:block) => {
+    ($x:expr,$clean:block) => {
         if $x < 0 {
             $clean;
             anyhow::bail!($crate::get_ffmpeg_error_msg($x))
         }
     };
-    ($x:expr_2021,$msg:expr_2021) => {
+    ($x:expr,$msg:expr) => {
         if $x < 0 {
             anyhow::bail!(format!("{}: {}", $msg, $crate::get_ffmpeg_error_msg($x)))
         }
     };
-    ($x:expr_2021,$msg:expr_2021,$clean:block) => {
+    ($x:expr,$msg:expr,$clean:block) => {
         if $x < 0 {
             $clean;
             anyhow::bail!(format!("{}: {}", $msg, $crate::get_ffmpeg_error_msg($x)))
@@ -51,14 +51,23 @@ macro_rules! bail_ffmpeg {
 
 #[macro_export]
 macro_rules! cstr {
-    ($str:expr_2021) => {
+    ($str:expr) => {
         std::ffi::CString::new($str).unwrap().into_raw()
     };
 }
 
 #[macro_export]
+macro_rules! free_cstr {
+    ($str:expr) => {
+        #[allow(unused_unsafe)]
+        let raw_str = unsafe { std::ffi::CString::from_raw($str) };
+        drop(raw_str);
+    };
+}
+
+#[macro_export]
 macro_rules! rstr {
-    ($str:expr_2021) => {
+    ($str:expr) => {
         if !$str.is_null() {
             core::ffi::CStr::from_ptr($str).to_str().unwrap()
         } else {
@@ -143,8 +152,8 @@ unsafe fn options_to_dict(options: HashMap<String, String>) -> Result<*mut AVDic
             let key_cstr = cstr!(key);
             let value_cstr = cstr!(value);
             let ret = av_dict_set(&mut dict, key_cstr, value_cstr, 0);
-            libc::free(key_cstr as *mut libc::c_void);
-            libc::free(value_cstr as *mut libc::c_void);
+            free_cstr!(key_cstr);
+            free_cstr!(value_cstr);
             bail_ffmpeg!(ret);
         }
         Ok(dict)

@@ -1,4 +1,4 @@
-use crate::{AVIO_BUFFER_SIZE, AvPacketRef, Encoder, bail_ffmpeg, cstr, set_opts};
+use crate::{AVIO_BUFFER_SIZE, AvPacketRef, Encoder, bail_ffmpeg, cstr, free_cstr, set_opts};
 use anyhow::{Result, bail};
 use ffmpeg_sys_the_third::{
     AV_CODEC_FLAG_GLOBAL_HEADER, AVERROR_EOF, AVFMT_GLOBALHEADER, AVFMT_NOFILE, AVFormatContext,
@@ -146,20 +146,23 @@ impl MuxerBuilder {
                 bail!("context already open");
             }
 
-            let ret = avformat_alloc_output_context2(
-                ctx,
-                ptr::null_mut(),
-                if let Some(format) = format {
-                    cstr!(format)
-                } else {
-                    ptr::null()
-                },
-                if let Some(dst) = dst {
-                    cstr!(dst)
-                } else {
-                    ptr::null()
-                },
-            );
+            let fmt_str = if let Some(format) = format {
+                cstr!(format)
+            } else {
+                ptr::null()
+            };
+            let dst_str = if let Some(dst) = dst {
+                cstr!(dst)
+            } else {
+                ptr::null()
+            };
+            let ret = avformat_alloc_output_context2(ctx, ptr::null_mut(), fmt_str, dst_str);
+            if !fmt_str.is_null() {
+                free_cstr!(fmt_str as _);
+            }
+            if !dst_str.is_null() {
+                free_cstr!(dst_str as _);
+            }
             bail_ffmpeg!(ret);
 
             // Setup global header flag
@@ -391,6 +394,9 @@ impl Muxer {
     /// Close the output and write the trailer
     /// [Muxer::init] can be used to re-init the muxer
     pub unsafe fn close(&mut self) -> Result<()> {
+        if self.ctx.is_null() {
+            bail!("Muxer is already closed");
+        }
         unsafe {
             let ret = av_write_trailer(self.ctx);
             bail_ffmpeg!(ret);
@@ -414,7 +420,7 @@ impl Muxer {
                     MuxerOutput::WriterSeeker(_) => {
                         let mut io = (*self.ctx).pb;
                         if !io.is_null() {
-                            av_freep((*io).buffer as *mut _);
+                            av_freep(ptr::addr_of_mut!((*io).buffer) as _);
                             drop(SlimBox::<dyn WriteSeek>::from_raw((*io).opaque));
                             avio_context_free(&mut io);
                         }
@@ -422,7 +428,7 @@ impl Muxer {
                     MuxerOutput::Writer(_) => {
                         let mut io = (*self.ctx).pb;
                         if !io.is_null() {
-                            av_freep((*io).buffer as *mut _);
+                            av_freep(ptr::addr_of_mut!((*io).buffer) as _);
                             drop(SlimBox::<dyn Write>::from_raw((*io).opaque));
                             avio_context_free(&mut io);
                         }

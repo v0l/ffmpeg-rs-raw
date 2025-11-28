@@ -1,11 +1,14 @@
-use crate::{AvFrameRef, AvPacketRef, bail_ffmpeg, cstr, get_ffmpeg_error_msg, options_to_dict};
+use crate::{
+    AvFrameRef, AvPacketRef, bail_ffmpeg, cstr, free_cstr, get_ffmpeg_error_msg, options_to_dict,
+};
 use anyhow::{Error, Result, bail};
 use ffmpeg_sys_the_third::AVPictureType::AV_PICTURE_TYPE_NONE;
 use ffmpeg_sys_the_third::{
-    AVChannelLayout, AVCodec, AVCodecContext, AVCodecID, AVERROR, AVERROR_EOF, AVPixelFormat,
-    AVRational, AVSampleFormat, av_channel_layout_default, av_d2q, av_inv_q, av_packet_alloc,
-    av_packet_free, avcodec_alloc_context3, avcodec_find_encoder, avcodec_find_encoder_by_name,
-    avcodec_free_context, avcodec_open2, avcodec_receive_packet, avcodec_send_frame,
+    AVChannelLayout, AVCodec, AVCodecContext, AVCodecID, AVERROR, AVERROR_EOF, AVFrame,
+    AVPixelFormat, AVRational, AVSampleFormat, av_channel_layout_default, av_d2q, av_inv_q,
+    av_packet_alloc, av_packet_free, avcodec_alloc_context3, avcodec_find_encoder,
+    avcodec_find_encoder_by_name, avcodec_free_context, avcodec_open2, avcodec_receive_packet,
+    avcodec_send_frame,
 };
 #[cfg(feature = "avcodec_version_greater_than_61_13")]
 use ffmpeg_sys_the_third::{AVCodecConfig, avcodec_get_supported_config};
@@ -45,13 +48,13 @@ impl Encoder {
 
     /// Create a new encoder by name
     pub fn new_with_name(name: &str) -> Result<Self> {
-        unsafe {
-            let codec = avcodec_find_encoder_by_name(cstr!(name));
-            if codec.is_null() {
-                bail!("codec not found");
-            }
-            Self::new_with_codec(codec)
+        let c_name = cstr!(name);
+        let codec = unsafe { avcodec_find_encoder_by_name(c_name) };
+        free_cstr!(c_name);
+        if codec.is_null() {
+            bail!("codec not found");
         }
+        Self::new_with_codec(codec)
     }
 
     /// Create a new encoder with a specific codec instance
@@ -216,7 +219,7 @@ impl Encoder {
     }
 
     /// Open the encoder so that you can start encoding frames (see [avcodec_open2])
-    pub unsafe fn open(self, options: Option<HashMap<String, String>>) -> Result<Self, Error> {
+    pub unsafe fn open(self, options: Option<HashMap<String, String>>) -> Result<Self> {
         unsafe {
             assert!(!self.ctx.is_null());
 
@@ -233,24 +236,23 @@ impl Encoder {
 
     /// Encode a frame, returning a number of [AvPacketRef]
     /// MAKE SURE TIMESTAMP ARE SET CORRECTLY
-    pub unsafe fn encode_frame(
-        &mut self,
-        frame: Option<&AvFrameRef>,
-    ) -> Result<Vec<AvPacketRef>, Error> {
+    pub fn encode_frame(&mut self, frame: Option<&AvFrameRef>) -> Result<Vec<AvPacketRef>> {
+        match frame {
+            Some(f) => {
+                // always reset pict_type, this can be set by the decoder,
+                // but it confuses the encoder
+                let mut f_clone = f.clone();
+                f_clone.pict_type = AV_PICTURE_TYPE_NONE;
+                unsafe { self.encode_frame_internal(f_clone.ptr()) }
+            }
+            None => unsafe { self.encode_frame_internal(ptr::null_mut()) },
+        }
+    }
+
+    unsafe fn encode_frame_internal(&mut self, frame: *mut AVFrame) -> Result<Vec<AvPacketRef>> {
         unsafe {
-            let mut pkgs = Vec::new();
-
-            let frame_ptr = match frame {
-                Some(f) => {
-                    // always reset pict_type, this can be set by the decoder,
-                    // but it confuses the encoder
-                    (*f.ptr()).pict_type = AV_PICTURE_TYPE_NONE;
-                    f.ptr()
-                }
-                None => ptr::null_mut(),
-            };
-
-            let mut ret = avcodec_send_frame(self.ctx, frame_ptr);
+            let mut packets = Vec::new();
+            let mut ret = avcodec_send_frame(self.ctx, frame);
             if ret < 0 && ret != AVERROR(EAGAIN) {
                 bail!(get_ffmpeg_error_msg(ret));
             }
@@ -272,10 +274,9 @@ impl Encoder {
                 if let Some(idx) = self.dst_stream_index {
                     (*pkt).stream_index = idx;
                 }
-                pkgs.push(AvPacketRef::new(pkt));
+                packets.push(AvPacketRef::new(pkt));
             }
-
-            Ok(pkgs)
+            Ok(packets)
         }
     }
 
@@ -283,11 +284,11 @@ impl Encoder {
     pub fn save_picture(mut self, frame: &AvFrameRef, dst: &str) -> Result<()> {
         let mut fout = std::fs::File::create(dst)?;
 
-        for pkt in unsafe { self.encode_frame(Some(frame))? } {
+        for pkt in self.encode_frame(Some(frame))? {
             let pkt_slice = unsafe { slice::from_raw_parts(pkt.data, pkt.size as usize) };
             fout.write_all(pkt_slice)?;
         }
-        for pkt in unsafe { self.encode_frame(None)? } {
+        for pkt in self.encode_frame(None)? {
             let pkt_slice = unsafe { slice::from_raw_parts(pkt.data, pkt.size as usize) };
             fout.write_all(pkt_slice)?;
         }

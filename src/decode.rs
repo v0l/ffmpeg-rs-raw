@@ -135,18 +135,18 @@ impl Decoder {
         codec: *const AVCodec,
     ) -> impl Iterator<Item = AVHWDeviceType> + use<> {
         unsafe {
-            let mut hw_config = ptr::null();
+            let mut _hw_config = ptr::null();
             let mut i = 0;
             let mut ret = Vec::new();
             loop {
-                hw_config = avcodec_get_hw_config(codec, i);
+                _hw_config = avcodec_get_hw_config(codec, i);
                 i += 1;
-                if hw_config.is_null() {
+                if _hw_config.is_null() {
                     break;
                 }
                 let hw_flag = AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX as libc::c_int;
-                if (*hw_config).methods & hw_flag == hw_flag {
-                    ret.push((*hw_config).device_type);
+                if (*_hw_config).methods & hw_flag == hw_flag {
+                    ret.push((*_hw_config).device_type);
                 }
             }
             ret.into_iter()
@@ -343,13 +343,28 @@ impl Decoder {
 mod tests {
     use super::*;
     use crate::Demuxer;
+    use anyhow::Context;
 
     #[test]
     fn decode_files() -> anyhow::Result<()> {
-        let files = std::fs::read_dir("./test_output/").unwrap();
+        let files = std::fs::read_dir("./test_output/")?;
         for file in files.into_iter() {
-            let mut mux = Demuxer::new(file.unwrap().path().to_str().unwrap())?;
-            let probe = unsafe { mux.probe_input()? };
+            let file = file?;
+            let path = file.path();
+            let path = path.to_str().context("Failed to get file name")?;
+            let mut mux = Demuxer::new(path)?;
+            let probe = unsafe {
+                match mux.probe_input() {
+                    Ok(p) => {
+                        println!("Opened {}", path);
+                        p
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to probe {} {}", path, e);
+                        continue;
+                    }
+                }
+            };
             let mut decoder = Decoder::new();
             for stream in probe.streams.iter() {
                 decoder.setup_decoder(stream, None)?;

@@ -44,6 +44,9 @@ impl AvFrameRef {
     /// Create a new AvFrameRef from a raw AVFrame pointer.
     /// Takes ownership of the frame - caller must not free it.
     pub unsafe fn new(frame: *mut AVFrame) -> Self {
+        if frame.is_null() {
+            panic!("Cannot create a frame ref with a null pointer.")
+        }
         Self { frame }
     }
 
@@ -95,6 +98,9 @@ impl AvPacketRef {
     /// Create a new AvPacketRef from a raw AVPacket pointer.
     /// Takes ownership of the packet - caller must not free it.
     pub unsafe fn new(packet: *mut AVPacket) -> Self {
+        if packet.is_null() {
+            panic!("Cannot create a packet ref with a null pointer.")
+        }
         Self { packet }
     }
 

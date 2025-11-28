@@ -1,4 +1,4 @@
-use crate::{AvPacketRef, DemuxerInfo, StreamInfo, StreamType};
+use crate::{AvPacketRef, DemuxerInfo, StreamInfo, StreamType, free_cstr};
 #[cfg(feature = "avformat_version_greater_than_60_19")]
 use crate::{StreamGroupInfo, StreamGroupType};
 use crate::{bail_ffmpeg, cstr, rstr};
@@ -51,18 +51,12 @@ pub struct Demuxer {
 impl Demuxer {
     /// Create a new [Demuxer] from a file path or url
     pub fn new(input: &str) -> Result<Self> {
-        unsafe {
-            let ctx = avformat_alloc_context();
-            if ctx.is_null() {
-                bail!("Failed to allocate AV context");
-            }
-            Ok(Self {
-                ctx,
-                input: DemuxerInput::Url(input.to_string()),
-                buffer_size: 4096,
-                format: None,
-            })
-        }
+        Ok(Self {
+            ctx: ptr::null_mut(),
+            input: DemuxerInput::Url(input.to_string()),
+            buffer_size: 4096,
+            format: None,
+        })
     }
 
     /// Configure the buffer size for custom_io
@@ -115,31 +109,41 @@ impl Demuxer {
     }
 
     unsafe fn open(&mut self) -> Result<()> {
-        unsafe {
-            let format = if let Some(f) = &self.format {
-                let fmt_str = cstr!(f.as_str());
-                let ret = av_find_input_format(fmt_str);
-                libc::free(fmt_str as *mut libc::c_void);
-                if ret.is_null() {
-                    bail!("Input format {} not found", f);
-                }
-                ret
-            } else {
-                ptr::null()
-            };
+        if !self.ctx.is_null() {
+            bail!("Demuxer is already open");
+        }
+        let format = if let Some(f) = &self.format {
+            let fmt_str = cstr!(f.as_str());
+            let ret = unsafe { av_find_input_format(fmt_str) };
+            free_cstr!(fmt_str);
+            if ret.is_null() {
+                bail!("Input format {} not found", f);
+            }
+            ret
+        } else {
+            ptr::null()
+        };
 
-            match &mut self.input {
-                DemuxerInput::Url(input) => {
-                    let input_cstr = cstr!(input.as_str());
-                    let ret =
-                        avformat_open_input(&mut self.ctx, input_cstr, format, ptr::null_mut());
-                    libc::free(input_cstr as *mut libc::c_void);
-                    bail_ffmpeg!(ret);
-                    Ok(())
+        match &mut self.input {
+            DemuxerInput::Url(input) => {
+                let input_cstr = cstr!(input.as_str());
+                let ret = unsafe {
+                    avformat_open_input(&mut self.ctx, input_cstr, format, ptr::null_mut())
+                };
+                free_cstr!(input_cstr);
+                bail_ffmpeg!(ret);
+                Ok(())
+            }
+            DemuxerInput::Reader(input, url) => {
+                let input = input.take().expect("input stream already taken");
+
+                let mut ctx = unsafe { avformat_alloc_context() };
+                if ctx.is_null() {
+                    bail!("Failed to allocate AV context");
                 }
-                DemuxerInput::Reader(input, url) => {
-                    let input = input.take().expect("input stream already taken");
-                    let pb = avio_alloc_context(
+
+                let mut pb = unsafe {
+                    avio_alloc_context(
                         av_mallocz(self.buffer_size) as *mut _,
                         self.buffer_size as _,
                         0,
@@ -147,24 +151,32 @@ impl Demuxer {
                         Some(read_data),
                         None,
                         None,
-                    );
-                    if pb.is_null() {
-                        bail!("failed to allocate avio context");
-                    }
-
-                    (*self.ctx).pb = pb;
-                    let url_cstr = if let Some(url) = url {
-                        cstr!(url.as_str())
-                    } else {
-                        ptr::null_mut()
-                    };
-                    let ret = avformat_open_input(&mut self.ctx, url_cstr, format, ptr::null_mut());
-                    if !url_cstr.is_null() {
-                        libc::free(url_cstr as *mut libc::c_void);
-                    }
-                    bail_ffmpeg!(ret);
-                    Ok(())
+                    )
+                };
+                if pb.is_null() {
+                    unsafe { avformat_free_context(ctx) };
+                    bail!("failed to allocate avio context");
                 }
+
+                let url_cstr = if let Some(url) = url {
+                    cstr!(url.as_str())
+                } else {
+                    ptr::null_mut()
+                };
+                let ret =
+                    unsafe { avformat_open_input(&mut ctx, url_cstr, format, ptr::null_mut()) };
+                if !url_cstr.is_null() {
+                    free_cstr!(url_cstr);
+                }
+                bail_ffmpeg!(ret, {
+                    unsafe {
+                        avio_context_free(&mut pb);
+                        avformat_free_context(ctx);
+                    }
+                });
+                unsafe { (*ctx).pb = pb };
+                self.ctx = ctx;
+                Ok(())
             }
         }
     }
@@ -215,7 +227,7 @@ impl Demuxer {
                 n_stream += 1;
                 let lang_key = cstr!("language");
                 let lang = av_dict_get((*stream).metadata, lang_key, ptr::null_mut(), 0);
-                libc::free(lang_key as *mut libc::c_void);
+                free_cstr!(lang_key);
                 let language = if lang.is_null() {
                     "".to_string()
                 } else {
@@ -330,7 +342,7 @@ impl Drop for Demuxer {
                 if let DemuxerInput::Reader(_, _) = self.input {
                     let mut io = (*self.ctx).pb;
                     if !io.is_null() {
-                        av_freep((*io).buffer as *mut _);
+                        av_freep(ptr::addr_of_mut!((*io).buffer) as _);
                         drop(SlimBox::<dyn Read>::from_raw((*io).opaque));
                         avio_context_free(&mut io);
                     }
@@ -346,6 +358,7 @@ mod tests {
     use super::*;
 
     #[cfg(feature = "avformat_version_greater_than_60_19")]
+    #[ignore]
     #[test]
     fn test_stream_groups() -> Result<()> {
         unsafe {

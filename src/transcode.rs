@@ -115,7 +115,7 @@ impl Transcoder {
         // flush
         let Some(pkt) = pkt else {
             for enc in self.encoders.values_mut() {
-                for new_pkt in unsafe { enc.encode_frame(None)? } {
+                for new_pkt in enc.encode_frame(None)? {
                     self.muxer.write_packet(&new_pkt)?;
                 }
             }
@@ -149,7 +149,7 @@ impl Transcoder {
                 };
 
                 // encode frame and send packets to muxer
-                for new_pkt in unsafe { enc.encode_frame(Some(&frame))? } {
+                for new_pkt in enc.encode_frame(Some(&frame))? {
                     self.muxer.write_packet(&new_pkt)?;
                 }
             }
