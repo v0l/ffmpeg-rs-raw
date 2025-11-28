@@ -1,3 +1,4 @@
+#![allow(unexpected_cfgs)]
 use anyhow::Error;
 use ffmpeg_sys_the_third::{
     AV_OPT_SEARCH_CHILDREN, AVDictionary, AVOption, av_dict_set, av_frame_alloc,

@@ -2,8 +2,6 @@ use ffmpeg_rs_raw::{Decoder, Demuxer, DemuxerInfo, Scaler, get_frame_from_hw};
 use ffmpeg_sys_the_third::{AVMediaType, AVPixelFormat};
 use log::{error, info};
 use std::env::args;
-use std::fs::File;
-use std::io::{Cursor, Read};
 use std::path::PathBuf;
 
 fn main() {
@@ -18,13 +16,6 @@ fn main() {
 
     let fd = read_as_file(path.clone());
     scan_input(fd);
-}
-
-fn read_as_custom_io(path: PathBuf) -> Demuxer {
-    let mut data: Vec<u8> = Vec::new();
-    File::open(path).unwrap().read_to_end(&mut data).unwrap();
-    let reader = Cursor::new(data);
-    Demuxer::new_custom_io(reader, None).unwrap()
 }
 
 fn read_as_file(path_buf: PathBuf) -> Demuxer {

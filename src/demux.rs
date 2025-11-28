@@ -28,7 +28,13 @@ extern "C" fn read_data(
     let mut buffer: SlimMut<'_, dyn Read + 'static> = unsafe { SlimMut::from_raw(opaque) };
     let dst_slice: &mut [u8] = unsafe { slice::from_raw_parts_mut(dst_buffer, size as usize) };
     match buffer.read(dst_slice) {
-        Ok(r) => r as libc::c_int,
+        Ok(r) => {
+            if r == 0 {
+                AVERROR_EOF
+            } else {
+                r as libc::c_int
+            }
+        }
         Err(e) => {
             eprintln!("read_data {}", e);
             AVERROR_EOF
@@ -482,7 +488,7 @@ mod tests {
     #[test]
     fn custom_io_read_packets() -> Result<()> {
         let mut data = Vec::new();
-        File::open("./test_output/test_muxer.mp4")?.read_to_end(&mut data)?;
+        File::open("./test_output/test_transcode.mkv")?.read_to_end(&mut data)?;
         let reader = Cursor::new(data);
 
         let mut demux = Demuxer::new_custom_io(reader, None)?;
@@ -543,7 +549,7 @@ mod tests {
     /// Test custom IO with File directly (not Cursor)
     #[test]
     fn custom_io_with_file_reader() -> Result<()> {
-        let file = File::open("./test_output/test_muxer.mp4")?;
+        let file = File::open("./test_output/test_transcode.mkv")?;
 
         let mut demux = Demuxer::new_custom_io(file, Some("test.mp4".to_string()))?;
         let probe = unsafe { demux.probe_input()? };
@@ -561,7 +567,7 @@ mod tests {
     /// Test custom IO read packets with File reader
     #[test]
     fn custom_io_read_packets_file_reader() -> Result<()> {
-        let file = File::open("./test_output/test_muxer.mp4")?;
+        let file = File::open("./test_output/test_transcode.mkv")?;
 
         let mut demux = Demuxer::new_custom_io(file, None)?;
         let _probe = unsafe { demux.probe_input()? };
