@@ -325,7 +325,7 @@ impl Demuxer {
     }
 
     /// Get stream by index from context
-    pub unsafe fn get_stream(&mut self, index: usize) -> Result<*mut AVStream, Error> {
+    pub unsafe fn get_stream(&self, index: usize) -> Result<*mut AVStream, Error> {
         unsafe {
             if self.ctx.is_null() {
                 bail!("context is null")
