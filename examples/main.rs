@@ -24,7 +24,7 @@ fn read_as_file(path_buf: PathBuf) -> Demuxer {
 
 fn scan_input(mut demuxer: Demuxer) {
     let info = unsafe { demuxer.probe_input().expect("demuxer failed") };
-    info!("{}", info);
+    info!("{:?}", info);
     decode_input(demuxer, info);
 }
 

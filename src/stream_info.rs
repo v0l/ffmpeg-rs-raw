@@ -1,12 +1,10 @@
-use crate::{format_time, rstr};
 #[cfg(feature = "avformat_version_greater_than_60_19")]
 use ffmpeg_sys_the_third::AVStreamGroup;
 use ffmpeg_sys_the_third::{
-    AVMediaType, AVStream, av_get_pix_fmt_name, av_get_sample_fmt_name, avcodec_get_name,
+    AVMediaType, AVStream,
 };
 
 use std::fmt::{Display, Formatter};
-use std::mem::transmute;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct DemuxerInfo {
@@ -71,33 +69,10 @@ impl DemuxerInfo {
     }
 }
 
-impl Display for DemuxerInfo {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let bitrate_str = if self.bitrate > 1_000_000 {
-            format!("{}M", self.bitrate / 1_000_000)
-        } else if self.bitrate > 1_000 {
-            format!("{}k", self.bitrate / 1_000)
-        } else {
-            self.bitrate.to_string()
-        };
-
-        write!(
-            f,
-            "Demuxer Info: duration={}, bitrate={}, format={}, mime={}",
-            format_time(self.duration),
-            bitrate_str,
-            self.format,
-            self.mime_types
-        )?;
-        for c in &self.streams {
-            write!(f, "\n  {}", c)?;
-        }
-        Ok(())
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Default)]
 pub enum StreamType {
+    #[default]
+    Unknown,
     Video,
     Audio,
     Subtitle,
@@ -109,6 +84,7 @@ impl Display for StreamType {
             f,
             "{}",
             match self {
+                StreamType::Unknown => "Unknown",
                 StreamType::Video => "video",
                 StreamType::Audio => "audio",
                 StreamType::Subtitle => "subtitle",
@@ -117,7 +93,7 @@ impl Display for StreamType {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Default)]
 pub struct StreamInfo {
     /// Stream index
     pub index: usize,
@@ -127,6 +103,8 @@ pub struct StreamInfo {
     pub codec: isize,
     /// Pixel format / Sample format
     pub format: isize,
+    /// Average bitrate of the stream
+    pub bitrate: usize,
 
     /// Video width
     pub width: usize,
@@ -136,6 +114,14 @@ pub struct StreamInfo {
     pub fps: f32,
     /// Start time offset
     pub start_time: f32,
+    /// Codec profile (h264)
+    pub profile: isize,
+    /// Codec level (h264)
+    pub level: isize,
+    /// Color space for video frames
+    pub color_space: isize,
+    /// Color range for video frames
+    pub color_range: isize,
 
     /// Audio sample rate
     pub sample_rate: usize,
@@ -155,56 +141,10 @@ unsafe impl Send for StreamInfo {}
 impl StreamInfo {
     pub fn best_metric(&self) -> f32 {
         match self.stream_type {
+            StreamType::Unknown => 0.0,
             StreamType::Video => self.width as f32 * self.height as f32 * self.fps,
             StreamType::Audio => self.sample_rate as f32,
             StreamType::Subtitle => 999. - self.index as f32,
-        }
-    }
-}
-
-impl Display for StreamInfo {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let codec_name = unsafe { rstr!(avcodec_get_name(transmute(self.codec as i32))) };
-        match self.stream_type {
-            StreamType::Video => write!(
-                f,
-                "{} #{}: codec={},size={}x{},fps={:.3},pix_fmt={},timebase={}/{}",
-                self.stream_type,
-                self.index,
-                codec_name,
-                self.width,
-                self.height,
-                self.fps,
-                unsafe { rstr!(av_get_pix_fmt_name(transmute(self.format as libc::c_int))) },
-                self.timebase.0,
-                self.timebase.1,
-            ),
-            StreamType::Audio => write!(
-                f,
-                "{} #{}: codec={},format={},sample_rate={},lang={},timebase={}/{}",
-                self.stream_type,
-                self.index,
-                codec_name,
-                unsafe {
-                    rstr!(av_get_sample_fmt_name(transmute(
-                        self.format as libc::c_int,
-                    )))
-                },
-                self.sample_rate,
-                self.language,
-                self.timebase.0,
-                self.timebase.1,
-            ),
-            StreamType::Subtitle => write!(
-                f,
-                "{} #{}: codec={},lang={},timebase={}/{}",
-                self.stream_type,
-                self.index,
-                codec_name,
-                self.language,
-                self.timebase.0,
-                self.timebase.1,
-            ),
         }
     }
 }

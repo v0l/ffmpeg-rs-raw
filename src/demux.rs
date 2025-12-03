@@ -246,11 +246,15 @@ impl Demuxer {
                             height: (*(*stream).codecpar).height as _,
                             fps: av_q2d((*stream).avg_frame_rate) as _,
                             format: (*(*stream).codecpar).format as _,
-                            sample_rate: 0,
-                            channels: 0,
                             start_time: ((*stream).start_time as f64 * q) as f32,
                             language,
                             timebase: ((*stream).time_base.num, (*stream).time_base.den),
+                            level: (*(*stream).codecpar).level as _,
+                            profile: (*(*stream).codecpar).profile as _,
+                            bitrate: (*(*stream).codecpar).bit_rate as _,
+                            color_space: (*(*stream).codecpar).color_space as _,
+                            color_range: (*(*stream).codecpar).color_range as _,
+                            ..Default::default()
                         });
                     }
                     AVMediaType::AVMEDIA_TYPE_AUDIO => {
@@ -259,15 +263,14 @@ impl Demuxer {
                             index: (*stream).index as _,
                             codec: (*(*stream).codecpar).codec_id as _,
                             stream_type: StreamType::Audio,
-                            width: (*(*stream).codecpar).width as _,
-                            height: (*(*stream).codecpar).height as _,
-                            fps: 0.0,
                             format: (*(*stream).codecpar).format as _,
                             sample_rate: (*(*stream).codecpar).sample_rate as _,
                             channels: (*(*stream).codecpar).ch_layout.nb_channels as _,
                             start_time: ((*stream).start_time as f64 * q) as f32,
                             language,
                             timebase: ((*stream).time_base.num, (*stream).time_base.den),
+                            bitrate: (*(*stream).codecpar).bit_rate as _,
+                            ..Default::default()
                         });
                     }
                     AVMediaType::AVMEDIA_TYPE_SUBTITLE => {
@@ -276,15 +279,10 @@ impl Demuxer {
                             index: (*stream).index as _,
                             codec: (*(*stream).codecpar).codec_id as _,
                             stream_type: StreamType::Subtitle,
-                            width: 0,
-                            height: 0,
-                            fps: 0.0,
-                            format: 0,
-                            sample_rate: 0,
-                            channels: 0,
                             start_time: ((*stream).start_time as f64 * q) as f32,
                             language,
                             timebase: ((*stream).time_base.num, (*stream).time_base.den),
+                            ..Default::default()
                         });
                     }
                     AVMediaType::AVMEDIA_TYPE_ATTACHMENT => {}
