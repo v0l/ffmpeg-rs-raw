@@ -16,6 +16,8 @@ pub struct Scaler {
     ctx: *mut SwsContext,
 }
 
+unsafe impl Send for Scaler {}
+
 impl Drop for Scaler {
     fn drop(&mut self) {
         unsafe {

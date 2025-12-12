@@ -13,6 +13,8 @@ pub struct AudioFifo {
     pts: i64,
 }
 
+unsafe impl Send for AudioFifo {}
+
 impl AudioFifo {
     pub fn new(format: AVSampleFormat, channels: u16) -> Result<Self> {
         let ctx = unsafe { av_audio_fifo_alloc(format, channels as _, 1) };

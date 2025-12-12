@@ -24,6 +24,8 @@ pub struct Encoder {
     dst_stream_index: Option<i32>,
 }
 
+unsafe impl Send for Encoder {}
+
 impl Drop for Encoder {
     fn drop(&mut self) {
         unsafe {

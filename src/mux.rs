@@ -58,6 +58,8 @@ pub struct Muxer {
     format: Option<String>,
 }
 
+unsafe impl Send for Muxer {}
+
 pub trait WriteSeek: Seek + Write {}
 impl<T: Seek + Write> WriteSeek for T {}
 

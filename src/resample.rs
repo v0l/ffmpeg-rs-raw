@@ -15,6 +15,8 @@ pub struct Resample {
     ctx: *mut SwrContext,
 }
 
+unsafe impl Send for Resample {}
+
 impl Drop for Resample {
     fn drop(&mut self) {
         unsafe {

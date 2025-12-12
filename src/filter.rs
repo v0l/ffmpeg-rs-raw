@@ -13,6 +13,8 @@ pub struct Filter {
     graph: *mut AVFilterGraph,
 }
 
+unsafe impl Send for Filter {}
+
 impl Default for Filter {
     fn default() -> Self {
         Self::new()

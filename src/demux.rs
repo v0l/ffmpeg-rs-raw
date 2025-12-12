@@ -54,6 +54,8 @@ pub struct Demuxer {
     format: Option<String>,
 }
 
+unsafe impl Send for Demuxer {}
+
 impl Demuxer {
     /// Create a new [Demuxer] from a file path or url
     pub fn new(input: &str) -> Result<Self> {

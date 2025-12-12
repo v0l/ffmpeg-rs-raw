@@ -22,6 +22,8 @@ pub struct DecoderCodecContext {
     pub stream_index: i32,
 }
 
+unsafe impl Send for DecoderCodecContext {}
+
 impl DecoderCodecContext {
     /// Set [AVCodecContext] options
     pub fn set_opt(&mut self, options: HashMap<String, String>) -> Result<(), Error> {
