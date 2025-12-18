@@ -18,15 +18,13 @@ extern "C" fn read_data(
     dst_buffer: *mut libc::c_uchar,
     size: libc::c_int,
 ) -> libc::c_int {
-    if size as isize >= isize::MAX {
-        error!(
-            "Demuxer tried to read {} bytes which exceeds isize::MAX",
-            size
-        );
+    let u_size = size as usize;
+    if u_size >= i32::MAX as usize || size < 0 {
+        error!("Demuxer tried to read {} bytes which is out of range", size);
         return AVERROR_EOF; // kill the pipeline
     }
     let mut buffer: SlimMut<'_, dyn Read + 'static> = unsafe { SlimMut::from_raw(opaque) };
-    let dst_slice: &mut [u8] = unsafe { slice::from_raw_parts_mut(dst_buffer, size as usize) };
+    let dst_slice: &mut [u8] = unsafe { slice::from_raw_parts_mut(dst_buffer, u_size) };
     match buffer.read(dst_slice) {
         Ok(r) => {
             if r == 0 {
