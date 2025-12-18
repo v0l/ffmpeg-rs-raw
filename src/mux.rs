@@ -397,15 +397,14 @@ impl Muxer {
     /// Close the output and write the trailer
     /// [Muxer::init] can be used to re-init the muxer
     pub unsafe fn close(&mut self) -> Result<()> {
-        if self.ctx.is_null() {
-            bail!("Muxer is already closed");
+        if !self.ctx.is_null() {
+            unsafe {
+                let ret = av_write_trailer(self.ctx);
+                bail_ffmpeg!(ret);
+                self.free_ctx()?;
+            }
         }
-        unsafe {
-            let ret = av_write_trailer(self.ctx);
-            bail_ffmpeg!(ret);
-            self.free_ctx()?;
-            Ok(())
-        }
+        Ok(())
     }
 
     unsafe fn free_ctx(&mut self) -> Result<()> {
@@ -448,7 +447,7 @@ impl Muxer {
 impl Drop for Muxer {
     fn drop(&mut self) {
         unsafe {
-            self.free_ctx().expect("drop muxer");
+            self.close().expect("close muxer");
         }
     }
 }
