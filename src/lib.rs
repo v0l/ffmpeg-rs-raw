@@ -1,7 +1,7 @@
 #![allow(unexpected_cfgs)]
 use anyhow::Error;
 use ffmpeg_sys_the_third::{
-    AV_OPT_SEARCH_CHILDREN, AVDictionary, AVOption, av_dict_set, av_frame_alloc,
+    AV_OPT_SEARCH_CHILDREN, AVDictionary, AVOption, AVPixelFormat, av_dict_set, av_frame_alloc,
     av_frame_copy_props, av_hwframe_transfer_data, av_opt_next, av_opt_set, av_strerror,
 };
 use std::collections::HashMap;
@@ -222,6 +222,29 @@ pub fn get_frame_from_hw(frame: AvFrameRef) -> Result<AvFrameRef, Error> {
     } else {
         unsafe {
             let new_frame = av_frame_alloc();
+            (*new_frame).width = frame.width;
+            (*new_frame).height = frame.height;
+            let ret = av_hwframe_transfer_data(new_frame, frame.ptr(), 0);
+            bail_ffmpeg!(ret);
+            av_frame_copy_props(new_frame, frame.ptr());
+            Ok(AvFrameRef::new(new_frame))
+        }
+    }
+}
+
+/// Get the frame as CPU frame with a specific pixel format
+pub fn get_frame_from_hw_with_fmt(
+    frame: AvFrameRef,
+    format: AVPixelFormat,
+) -> Result<AvFrameRef, Error> {
+    if frame.hw_frames_ctx.is_null() {
+        Ok(frame)
+    } else {
+        unsafe {
+            let new_frame = av_frame_alloc();
+            (*new_frame).width = frame.width;
+            (*new_frame).height = frame.height;
+            (*new_frame).format = format as _;
             let ret = av_hwframe_transfer_data(new_frame, frame.ptr(), 0);
             bail_ffmpeg!(ret);
             av_frame_copy_props(new_frame, frame.ptr());
