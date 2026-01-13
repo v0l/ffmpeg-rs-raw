@@ -53,6 +53,8 @@ unsafe extern "C" fn seek_data(opaque: *mut libc::c_void, offset: i64, whence: l
 
 pub struct Muxer {
     ctx: *mut AVFormatContext,
+    /// ptr to the un-opened muxer context
+    ctx_pending: *mut AVFormatContext,
     output: MuxerOutput,
     url: Option<String>,
     format: Option<String>,
@@ -251,7 +253,8 @@ impl MuxerBuilder {
             bail!("context is null");
         }
         Ok(Muxer {
-            ctx: self.ctx,
+            ctx: ptr::null_mut(),
+            ctx_pending: self.ctx,
             output: self.output,
             url: self.url,
             format: self.format,
@@ -315,18 +318,18 @@ impl Muxer {
 
     /// Add a stream to the output using an existing encoder
     pub unsafe fn add_stream_encoder(&mut self, encoder: &Encoder) -> Result<*mut AVStream> {
-        unsafe { MuxerBuilder::add_stream_from_encoder(self.ctx, encoder) }
+        unsafe { MuxerBuilder::add_stream_from_encoder(self.ctx_pending, encoder) }
     }
 
     /// Add a stream to the output using an existing input stream (copy)
     pub unsafe fn add_copy_stream(&mut self, in_stream: *mut AVStream) -> Result<*mut AVStream> {
-        unsafe { MuxerBuilder::add_copy_stream(self.ctx, in_stream) }
+        unsafe { MuxerBuilder::add_copy_stream(self.ctx_pending, in_stream) }
     }
 
     /// Initialize the context, usually after it was closed with [Muxer::close]
     pub unsafe fn init(&mut self) -> Result<()> {
         unsafe {
-            MuxerBuilder::init_ctx(&mut self.ctx, self.url.as_deref(), self.format.as_deref())
+            MuxerBuilder::init_ctx(&mut self.ctx_pending, self.url.as_deref(), self.format.as_deref())
         }
     }
 
@@ -350,27 +353,38 @@ impl Muxer {
 
     /// Open the output to start sending packets
     pub unsafe fn open(&mut self, options: Option<HashMap<String, String>>) -> Result<()> {
+        if self.ctx_pending.is_null() {
+            bail!("context is null");
+        }
+        if !self.ctx.is_null() {
+            bail!("context is already open");
+        }
         unsafe {
             // Set options on ctx
             if let Some(opts) = options {
-                set_opts((*self.ctx).priv_data, opts)?;
+                set_opts((*self.ctx_pending).priv_data, opts)?;
             }
 
-            if (*(*self.ctx).oformat).flags & AVFMT_NOFILE == 0 {
-                (*self.ctx).pb = (&mut self.output).try_into()?;
+            if (*(*self.ctx_pending).oformat).flags & AVFMT_NOFILE == 0 {
+                (*self.ctx_pending).pb = (&mut self.output).try_into()?;
                 // if pb is still null, open with ctx.url
-                if (*self.ctx).pb.is_null() {
-                    let ret = avio_open(&mut (*self.ctx).pb, (*self.ctx).url, AVIO_FLAG_WRITE);
+                if (*self.ctx_pending).pb.is_null() {
+                    let ret = avio_open(
+                        &mut (*self.ctx_pending).pb,
+                        (*self.ctx_pending).url,
+                        AVIO_FLAG_WRITE,
+                    );
                     bail_ffmpeg!(ret);
                 } else {
                     // Don't write buffer, just let the handler functions write directly
-                    (*self.ctx).flags |= AVIO_FLAG_DIRECT;
+                    (*self.ctx_pending).flags |= AVIO_FLAG_DIRECT;
                 }
             }
 
-            let ret = avformat_write_header(self.ctx, ptr::null_mut());
+            let ret = avformat_write_header(self.ctx_pending, ptr::null_mut());
             bail_ffmpeg!(ret);
-
+            self.ctx = self.ctx_pending;
+            self.ctx_pending = ptr::null_mut();
             Ok(())
         }
     }
@@ -382,6 +396,9 @@ impl Muxer {
 
     /// Write a packet to the output
     pub fn write_packet(&mut self, pkt: &AvPacketRef) -> Result<()> {
+        if self.ctx.is_null() {
+            bail!("context is null");
+        }
         unsafe {
             let pkt_ptr = pkt.ptr();
             let stream = *(*self.ctx).streams.add(pkt.stream_index as usize);
@@ -438,6 +455,10 @@ impl Muxer {
                 }
                 avformat_free_context(self.ctx);
                 self.ctx = ptr::null_mut();
+            }
+            if !self.ctx_pending.is_null() {
+                avformat_free_context(self.ctx_pending);
+                self.ctx_pending = ptr::null_mut();
             }
             Ok(())
         }
