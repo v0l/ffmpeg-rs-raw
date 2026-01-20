@@ -163,17 +163,13 @@ impl Decoder {
     ) -> Result<&mut DecoderCodecContext, Error> {
         unsafe {
             if stream.is_null() {
-                anyhow::bail!("stream is null");
+                bail!("stream is null");
             }
 
             let codec_par = (*stream).codecpar;
-            assert_ne!(
-                codec_par,
-                ptr::null_mut(),
-                "Codec parameters are missing from stream"
-            );
-
+            assert!(!codec_par.is_null());
             let ctx = self.add_decoder((*codec_par).codec_id, (*stream).index)?;
+            assert!(!ctx.context.is_null());
             let ret = avcodec_parameters_to_context(ctx.context, (*stream).codecpar);
             bail_ffmpeg!(ret, "Failed to copy codec parameters to context");
 
@@ -270,6 +266,7 @@ impl Decoder {
                                 continue;
                             }
                             (*context).hw_device_ctx = av_buffer_ref(hw_buf_ref);
+                            assert!(!(*context).hw_device_ctx.is_null());
                             break;
                         }
                     }
