@@ -110,3 +110,43 @@ impl AvPacketRef {
 }
 
 unsafe impl Send for AvPacketRef {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ffmpeg_sys_the_third::{AVRational, av_frame_alloc, av_frame_get_buffer};
+    use std::thread::sleep;
+    use std::time::Duration;
+
+    #[test]
+    fn test_send() {
+        let frame = unsafe {
+            let mut f = AvFrameRef::new(av_frame_alloc());
+            f.width = 1280;
+            f.height = 720;
+            f.format = 0;
+            f.pts = 0;
+            f.duration = 3000;
+            f.time_base = AVRational {
+                num: 1,
+                den: 90_000,
+            };
+            av_frame_get_buffer(f.ptr(), 0);
+            f
+        };
+
+        std::thread::spawn(move || {
+            for _ in 0..10 {
+                sleep(Duration::from_millis(100));
+                assert!(!frame.ptr().is_null());
+                assert_eq!(frame.width, 1280);
+                assert_eq!(frame.height, 720);
+                assert_eq!(frame.format, 0);
+                assert_eq!(frame.duration, 3000);
+                assert!(!frame.data[0].is_null())
+            }
+        })
+        .join()
+        .unwrap();
+    }
+}
