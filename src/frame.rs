@@ -1,28 +1,34 @@
 use crate::ffmpeg_sys_the_third::{
     AVFrame, AVPacket, av_frame_clone, av_frame_free, av_packet_clone, av_packet_free,
 };
+use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
+use std::ptr::NonNull;
 
 /// Safe wrapper around AVFrame
 pub struct AvFrameRef {
-    frame: *mut AVFrame,
+    /// Pointer to the actual frame
+    ptr: NonNull<AVFrame>,
+    /// Marker for lifetime
+    _phantom: PhantomData<AVFrame>,
 }
 
 impl Clone for AvFrameRef {
     fn clone(&self) -> Self {
-        let clone = unsafe { av_frame_clone(self.frame) };
-        Self { frame: clone }
+        let clone = unsafe { av_frame_clone(self.ptr.as_ptr()) };
+        Self {
+            ptr: NonNull::new(clone).unwrap(),
+            _phantom: PhantomData::default(),
+        }
     }
 }
 
 impl Drop for AvFrameRef {
     fn drop(&mut self) {
-        if !self.frame.is_null() {
-            unsafe {
-                av_frame_free(&mut self.frame);
-            }
+        unsafe {
+            let mut ptr = self.ptr.as_ptr();
+            av_frame_free(&mut ptr);
         }
-        self.frame = std::ptr::null_mut();
     }
 }
 
@@ -30,13 +36,13 @@ impl Deref for AvFrameRef {
     type Target = AVFrame;
 
     fn deref(&self) -> &Self::Target {
-        unsafe { &*self.frame }
+        unsafe { self.ptr.as_ref() }
     }
 }
 
 impl DerefMut for AvFrameRef {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *self.frame }
+        unsafe { self.ptr.as_mut() }
     }
 }
 
@@ -44,14 +50,14 @@ impl AvFrameRef {
     /// Create a new AvFrameRef from a raw AVFrame pointer.
     /// Takes ownership of the frame - caller must not free it.
     pub unsafe fn new(frame: *mut AVFrame) -> Self {
-        if frame.is_null() {
-            panic!("Cannot create a frame ref with a null pointer.")
+        Self {
+            ptr: NonNull::new(frame).expect("Cannot create a frame ref with a null pointer."),
+            _phantom: PhantomData::default(),
         }
-        Self { frame }
     }
 
     pub fn ptr(&self) -> *mut AVFrame {
-        self.frame
+        self.ptr.as_ptr()
     }
 }
 
@@ -59,24 +65,28 @@ unsafe impl Send for AvFrameRef {}
 
 /// Safe wrapper around AVPacket
 pub struct AvPacketRef {
-    packet: *mut AVPacket,
+    /// Pointer to the actual packet
+    ptr: NonNull<AVPacket>,
+    /// Marker for lifetime
+    _phantom: PhantomData<AVPacket>,
 }
 
 impl Clone for AvPacketRef {
     fn clone(&self) -> Self {
-        let clone = unsafe { av_packet_clone(self.packet) };
-        Self { packet: clone }
+        let clone = unsafe { av_packet_clone(self.ptr.as_ptr()) };
+        Self {
+            ptr: NonNull::new(clone).unwrap(),
+            _phantom: PhantomData::default(),
+        }
     }
 }
 
 impl Drop for AvPacketRef {
     fn drop(&mut self) {
-        if !self.packet.is_null() {
-            unsafe {
-                av_packet_free(&mut self.packet);
-            }
+        unsafe {
+            let mut ptr = self.ptr.as_ptr();
+            av_packet_free(&mut ptr);
         }
-        self.packet = std::ptr::null_mut();
     }
 }
 
@@ -84,13 +94,13 @@ impl Deref for AvPacketRef {
     type Target = AVPacket;
 
     fn deref(&self) -> &Self::Target {
-        unsafe { &*self.packet }
+        unsafe { self.ptr.as_ref() }
     }
 }
 
 impl DerefMut for AvPacketRef {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *self.packet }
+        unsafe { self.ptr.as_mut() }
     }
 }
 
@@ -98,14 +108,14 @@ impl AvPacketRef {
     /// Create a new AvPacketRef from a raw AVPacket pointer.
     /// Takes ownership of the packet - caller must not free it.
     pub unsafe fn new(packet: *mut AVPacket) -> Self {
-        if packet.is_null() {
-            panic!("Cannot create a packet ref with a null pointer.")
+        Self {
+            ptr: NonNull::new(packet).expect("Cannot create a packet with a null pointer."),
+            _phantom: PhantomData::default(),
         }
-        Self { packet }
     }
 
     pub fn ptr(&self) -> *mut AVPacket {
-        self.packet
+        self.ptr.as_ptr()
     }
 }
 
