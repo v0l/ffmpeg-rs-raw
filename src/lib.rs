@@ -18,6 +18,7 @@ mod resample;
 mod scale;
 mod stream_info;
 mod transcode;
+mod slimbox;
 
 #[cfg(not(feature = "avcodec_version_greater_than_59_24"))]
 compile_error!("avcodec version too old, < 59.24");

@@ -1,4 +1,4 @@
-use crate::{AVIO_BUFFER_SIZE, AvPacketRef, Encoder, bail_ffmpeg, cstr, free_cstr, set_opts};
+use crate::{AVIO_BUFFER_SIZE, AvPacketRef, Encoder, bail_ffmpeg, cstr, free_cstr, set_opts, slimbox_unsize};
 use anyhow::{Result, bail};
 use ffmpeg_sys_the_third::{
     AV_CODEC_FLAG_GLOBAL_HEADER, AVERROR_EOF, AVFMT_GLOBALHEADER, AVFMT_NOFILE, AVFormatContext,
@@ -8,7 +8,7 @@ use ffmpeg_sys_the_third::{
     avformat_new_stream, avformat_write_header, avio_alloc_context, avio_close, avio_context_free,
     avio_open,
 };
-use slimbox::{SlimBox, SlimMut, slimbox_unsize};
+use crate::slimbox::{SlimBox, SlimMut};
 use std::collections::HashMap;
 use std::io::{Seek, SeekFrom, Write};
 use std::{ptr, slice};

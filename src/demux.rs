@@ -1,4 +1,5 @@
-use crate::{AvPacketRef, DemuxerInfo, StreamInfo, StreamType, free_cstr};
+use crate::slimbox::{SlimBox, SlimMut};
+use crate::{AvPacketRef, DemuxerInfo, StreamInfo, StreamType, free_cstr, slimbox_unsize};
 #[cfg(feature = "avformat_version_greater_than_60_19")]
 use crate::{StreamGroupInfo, StreamGroupType};
 use crate::{bail_ffmpeg, cstr, rstr};
@@ -7,7 +8,6 @@ use anyhow::{Error, Result, bail};
 use ffmpeg_sys_the_third::AVStreamGroupParamsType::AV_STREAM_GROUP_PARAMS_TILE_GRID;
 use ffmpeg_sys_the_third::*;
 use log::{error, warn};
-use slimbox::{SlimBox, SlimMut, slimbox_unsize};
 use std::collections::HashMap;
 use std::io::Read;
 use std::{ptr, slice};
