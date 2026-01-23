@@ -384,6 +384,7 @@ mod tests {
     }
 
     /// Test for leaking file handles
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn probe_lots() -> Result<()> {
         rlimit::setrlimit(rlimit::Resource::NOFILE, 64, 128)?;
@@ -523,6 +524,7 @@ mod tests {
     }
 
     /// Test custom IO file handle leak (similar to probe_lots but for custom IO)
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn custom_io_probe_lots() -> Result<()> {
         rlimit::setrlimit(rlimit::Resource::NOFILE, 64, 128)?;
