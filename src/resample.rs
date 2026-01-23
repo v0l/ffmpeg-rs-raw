@@ -19,11 +19,7 @@ unsafe impl Send for Resample {}
 
 impl Drop for Resample {
     fn drop(&mut self) {
-        unsafe {
-            if !self.ctx.is_null() {
-                swr_free(&mut self.ctx);
-            }
-        }
+        self.reset();
     }
 }
 
@@ -34,6 +30,33 @@ impl Resample {
             channels,
             sample_rate: rate,
             ctx: ptr::null_mut(),
+        }
+    }
+
+    pub fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+
+    pub fn channels(&self) -> usize {
+        self.channels
+    }
+
+    pub fn set_sample_rate(&mut self, sample_rate: u32) {
+        self.sample_rate = sample_rate;
+        self.reset();
+    }
+
+    pub fn set_channels(&mut self, channels: usize) {
+        self.channels = channels;
+        self.reset();
+    }
+
+    fn reset(&mut self) {
+        if !self.ctx.is_null() {
+            unsafe {
+                swr_free(&mut self.ctx);
+                self.ctx = ptr::null_mut();
+            }
         }
     }
 
